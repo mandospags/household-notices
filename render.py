@@ -25,8 +25,8 @@ def render_digest(
         print("- Nothing due today.")
     print()
 
-    print("Upcoming (next 2 days)")
-    print("-----------------------")
+    print("Upcoming")
+    print("--------")
     if upcoming_notices:
         for n in upcoming_notices:
             print(_line(n, show_date=True))

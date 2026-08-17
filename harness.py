@@ -1,12 +1,22 @@
-from datetime import datetime, timedelta
+from datetime import datetime
 
 from dotenv import load_dotenv
 
 from render import render_digest
-from services import air_quality, bins, weather
+from services import air_quality, bins, trains, weather
 from services.base import Notice
 
 SERVICES = [bins, air_quality, weather]
+
+
+def _section(notice: Notice, today) -> str | None:
+    if notice.section is not None:
+        return notice.section
+    if notice.date == today:
+        return "today"
+    if notice.date is not None and notice.date > today:
+        return "upcoming"
+    return None
 
 
 def main() -> None:
@@ -14,7 +24,6 @@ def main() -> None:
 
     now = datetime.now()
     today = now.date()
-    window = {today, today + timedelta(days=1), today + timedelta(days=2)}
 
     all_notices: list[Notice] = []
     for service in SERVICES:
@@ -23,11 +32,16 @@ def main() -> None:
         except Exception as exc:
             print(f"[{service.SOURCE}] failed: {exc}")
 
+    try:
+        all_notices.extend(trains.fetch(now))
+    except Exception as exc:
+        print(f"[{trains.SOURCE}] failed: {exc}")
+
     today_notices = sorted(
-        (n for n in all_notices if n.date == today), key=lambda n: n.source
+        (n for n in all_notices if _section(n, today) == "today"), key=lambda n: n.source
     )
     upcoming_notices = sorted(
-        (n for n in all_notices if n.date in window and n.date != today),
+        (n for n in all_notices if _section(n, today) == "upcoming"),
         key=lambda n: (n.date, n.source),
     )
 

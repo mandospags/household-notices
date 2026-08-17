@@ -3,10 +3,10 @@ from datetime import datetime, timedelta
 from dotenv import load_dotenv
 
 from render import render_digest
-from services import bins
+from services import air_quality, bins
 from services.base import Notice
 
-SERVICES = [bins]
+SERVICES = [bins, air_quality]
 
 
 def main() -> None:

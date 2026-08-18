@@ -3,10 +3,10 @@ from datetime import datetime
 from dotenv import load_dotenv
 
 from render import render_digest
-from services import air_quality, bins, trains, weather
+from services import air_quality, bins, traffic, trains, weather
 from services.base import Notice
 
-SERVICES = [bins, air_quality, weather, trains]
+SERVICES = [bins, air_quality, weather, trains, traffic]
 
 
 def _section(notice: Notice, today) -> str | None:

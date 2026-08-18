@@ -38,9 +38,11 @@ Working Phase 1 digest with four sources:
 - `services/trains.py` — Realtime Trains commute rows (Andover ⇄ Waterloo);
   also alert-capable (watches the two usual commute trains for
   delay/cancellation/platform changes).
+- `services/traffic.py` — TomTom live traffic for the Station run and
+  School run (from Home before noon, back Home after).
 
-`weather` and `trains` are alert-capable (`alert_status(now)`); the others
-are digest-only.
+`weather`, `trains`, and `traffic` are alert-capable (`alert_status(now)`);
+the others are digest-only.
 
 Deliberately **not** built yet: any scheduler, Telegram/HA output. Don't
 add infrastructure for these speculatively.

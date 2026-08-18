@@ -23,9 +23,9 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 
-from services import trains, weather
+from services import traffic, trains, weather
 
-ALERT_SERVICES = [trains, weather]
+ALERT_SERVICES = [trains, weather, traffic]
 
 
 def main() -> None:

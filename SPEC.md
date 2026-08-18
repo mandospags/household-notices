@@ -127,9 +127,6 @@ built. Everything else in this doc is frozen original intent.)
 - Met Office day-to-day forecast (DataHub, separate from the warnings feed
   already built) — would fill the "baseline weather summary" requirement,
   currently uncovered.
-- Traffic conditions for both daily commutes (mine and my wife's) — TomTom
-  Traffic API as the candidate; needs routes defined in config and a free
-  API key.
 - Test Valley planning applications — HTML scrape, no known API.
 - St Michael's School, Burghclere — upcoming events.
 - 1962 Ordo / today's liturgical calendar day.

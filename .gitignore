@@ -4,4 +4,5 @@ __pycache__/
 *.pyc
 .venv/
 *.db
-*.sqlitealerts_state.json
+*.sqlite
+alerts_state.json

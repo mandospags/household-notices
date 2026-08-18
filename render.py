@@ -10,9 +10,21 @@ def _line(notice: Notice, show_date: bool) -> str:
 
 
 def render_digest(
-    now: datetime, today_notices: list[Notice], upcoming_notices: list[Notice]
+    now: datetime,
+    alert_lines: list[str],
+    today_notices: list[Notice],
+    upcoming_notices: list[Notice],
 ) -> None:
     print(f"Household digest - {now:%A %d %B %Y}")
+    print()
+
+    print("Alerts")
+    print("------")
+    if alert_lines:
+        for line in alert_lines:
+            print(f"- {line}")
+    else:
+        print("- No active alerts.")
     print()
 
     today_heading = f"Today ({now:%A %d %B %Y}, {now:%H:%M})"

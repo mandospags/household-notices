@@ -7,6 +7,25 @@ from services import air_quality, bins, traffic, trains, weather
 from services.base import Notice
 
 SERVICES = [bins, air_quality, weather, trains, traffic]
+ALERT_SERVICES = [trains, weather, traffic]
+
+
+def _is_notable(status: str) -> bool:
+    return status != "clear" and not status.startswith("on time")
+
+
+def _alert_lines(now: datetime) -> list[str]:
+    lines = []
+    for service in ALERT_SERVICES:
+        try:
+            statuses = service.alert_status(now)
+        except Exception as exc:
+            print(f"[{service.SOURCE}] failed: {exc}")
+            continue
+        lines.extend(
+            entry["summary"] for entry in statuses.values() if _is_notable(entry["status"])
+        )
+    return lines
 
 
 def _section(notice: Notice, today) -> str | None:
@@ -40,7 +59,9 @@ def main() -> None:
         key=lambda n: (n.date, n.source),
     )
 
-    render_digest(now, today_notices, upcoming_notices)
+    alert_lines = _alert_lines(now)
+
+    render_digest(now, alert_lines, today_notices, upcoming_notices)
 
 
 if __name__ == "__main__":

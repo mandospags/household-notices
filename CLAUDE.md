@@ -22,7 +22,12 @@ print output.
 Working Phase 1 digest with four sources:
 
 - `digest.py` — daily-digest entry point. Loads `.env`, calls each
-  service's `fetch(now)`, buckets notices into "today"/"upcoming", renders.
+  service's `fetch(now)`, buckets notices into "today"/"upcoming", also
+  calls `alert_status(now)` on the alert-capable services for a stateless
+  "Alerts" block at the top (non-nominal statuses only — "clear"/"on time"
+  filtered out); renders. This is a second, independent read of
+  `alert_status()` alongside `fetch()` (some extra API calls) — it does not
+  share state with or affect `alerts.py`'s diff cadence.
 - `alerts.py` — poll-and-diff entry point for sudden items: one line per
   change vs last-seen state (`ALERTS_STATE_FILE`, JSON, gitignored),
   silence otherwise. Time-blind by design — cadence belongs to the invoker
@@ -39,7 +44,10 @@ Working Phase 1 digest with four sources:
   also alert-capable (watches the two usual commute trains for
   delay/cancellation/platform changes).
 - `services/traffic.py` — TomTom live traffic for the Station run and
-  School run (from Home before noon, back Home after).
+  School run (from Home before noon, back Home after); also reports
+  roadworks/closures actually on the calculated route (via calculateRoute's
+  own `sections`, not a bounding-box guess — see module docstring for why
+  that distinction matters).
 
 `weather`, `trains`, and `traffic` are alert-capable (`alert_status(now)`);
 the others are digest-only.

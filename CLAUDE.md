@@ -21,10 +21,13 @@ print output.
 
 Working Phase 1 digest with four sources:
 
-- `digest.py` — entry point. Loads `.env`, calls each service's
-  `fetch(now)`, buckets notices into "today"/"upcoming", renders. Runs on
-  demand; a future `alerts.py` (poll-and-diff one-liners for sudden items)
-  will be a sibling entry point sharing `services/`, not merged into it.
+- `digest.py` — daily-digest entry point. Loads `.env`, calls each
+  service's `fetch(now)`, buckets notices into "today"/"upcoming", renders.
+- `alerts.py` — poll-and-diff entry point for sudden items: one line per
+  change vs last-seen state (`ALERTS_STATE_FILE`, JSON, gitignored),
+  silence otherwise. Time-blind by design — cadence belongs to the invoker
+  (manual now, cron in Phase 2). Kept as a sibling of `digest.py` sharing
+  `services/`; don't merge the two cadences into one pipeline.
 - `render.py` — plain-text digest output (Phase 1 stand-in for
   Telegram/HA).
 - `services/base.py` — the `Notice` dataclass (the whole inter-module
@@ -32,16 +35,21 @@ Working Phase 1 digest with four sources:
 - `services/bins.py` — Test Valley bin collections (iTouchVision API).
 - `services/air_quality.py` — DEFRA DAQI forecast RSS.
 - `services/weather.py` — Met Office severe weather warnings RSS.
-- `services/trains.py` — Realtime Trains commute rows (Andover ⇄ Waterloo).
+- `services/trains.py` — Realtime Trains commute rows (Andover ⇄ Waterloo);
+  also alert-capable (watches the two usual commute trains for
+  delay/cancellation/platform changes).
 
-Deliberately **not** built yet: last-seen-state/diffing, the frequent
-poll-and-diff cadence for sudden alerts, any scheduler, Telegram/HA output.
-Don't add infrastructure for these speculatively.
+`weather` and `trains` are alert-capable (`alert_status(now)`); the others
+are digest-only.
+
+Deliberately **not** built yet: any scheduler, Telegram/HA output. Don't
+add infrastructure for these speculatively.
 
 ## Run it
 
 ```
-python digest.py
+python digest.py    # the daily/on-demand digest
+python alerts.py    # one line per change since last run, else "no changes"
 ```
 
 Setup: `python -m venv .venv`, install `requirements.txt`, copy
@@ -49,7 +57,8 @@ Setup: `python -m venv .venv`, install `requirements.txt`, copy
 credential; the rest are location/tuning values with working defaults).
 
 No tests or linter yet — deliberate at this size. Verify changes by running
-the digest.
+the entry point you touched (for alerts.py, run twice: changes then
+"no changes"; hand-edit the state file to simulate a change).
 
 ## Adding a source
 
@@ -66,6 +75,13 @@ One consistent pattern, no registry or base class:
 By default a `Notice` is bucketed by `date` (today vs upcoming, anything
 past dropped); set `section=` explicitly only when that's wrong (trains does
 this for its preview rows).
+
+To make a source alert-capable, additionally expose
+`alert_status(now) -> dict` mapping a stable key (`"<SOURCE>:..."`) to
+`{"status": comparable string, "summary": printable line}`, and add the
+module to `ALERT_SERVICES` in `alerts.py`. The key must survive re-fetches
+of the same underlying thing (see alerts.py's docstring for the diff
+semantics).
 
 **Write a real module docstring**: capture what an agent can't rediscover
 cheaply — feed quirks, auth model, timezone behavior, things unconfirmed

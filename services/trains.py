@@ -23,6 +23,14 @@ planned arrival) and filterFrom for the return leg (Andover's own live
 arrival + origin's planned departure). That keeps every "home end" time
 live for one call, with no need for a second /rtt/service lookup.
 
+alert_status() (for alerts.py) watches the two *usual* commute trains
+(TRAINS_USUAL_MORNING from home, TRAINS_USUAL_EVENING back) rather than
+"next from now" - alerts need a stable subject to diff, and these are
+queried at their departing station so the live time and platform are the
+departure's own (evening platform = Waterloo's, which is the useful one).
+Keyed by scheduleMetadata.uniqueIdentity (schedule identity + departure
+date), so keys roll over naturally each day.
+
 On the return leg, Andover is a mid-route stop, not the schedule's final
 destination (many of these continue to Salisbury, Yeovil Junction, etc) -
 so the board_destination shown is that true final destination (matching
@@ -201,6 +209,72 @@ def _format_line(row: TrainRow) -> str:
     platform = f"plat {row.platform}" if row.platform else "plat ?"
 
     return f"{departs} to {row.board_destination} - {platform} - {arrives} - {row.operator}"
+
+
+def _watched_status(
+    access_token: str, depart: str, dest: str, planned: datetime, threshold_min: int
+) -> tuple[str, dict]:
+    """Status of the one scheduled service departing `depart` for `dest` at
+    `planned` - queried at the departing station (unlike fetch(), which always
+    queries at home), so the live time and platform are the departure's own.
+    After departure realtimeActual takes over from the forecast, so the status
+    settles rather than churning."""
+    home_name, services = _location_lineup(
+        access_token,
+        depart,
+        dest,
+        "departure",
+        planned - timedelta(minutes=10),
+        planned + timedelta(minutes=10),
+    )
+    for svc in services:
+        row = _parse_row(svc, "departure", home_name)
+        if row.from_planned != planned:
+            continue
+        if row.is_cancelled:
+            state = "CANCELLED"
+        else:
+            delay_min = 0
+            if row.from_estimate:
+                delay_min = int((row.from_estimate - row.from_planned).total_seconds() // 60)
+            if delay_min >= threshold_min:
+                state = f"exp {row.from_estimate:%H:%M} (+{delay_min}m)"
+            else:
+                state = "on time"
+        status = f"{state}, plat {row.platform or '?'}"
+        # uniqueIdentity is e.g. "gb-nr:L79428:2026-08-18" - schedule identity
+        # plus departure date, so keys roll over naturally each day.
+        key = f"{SOURCE}:{svc['scheduleMetadata']['uniqueIdentity']}"
+        summary = f"{planned:%H:%M} {home_name} to {row.board_destination}: {status}"
+        return key, {"status": status, "summary": summary}
+
+    # The usual train not being in the timetable at all is itself an alert
+    # (engineering works, weekend timetable, short-notice removal).
+    key = f"{SOURCE}:{depart}-{dest}:{planned:%Y-%m-%d-%H%M}"
+    summary = f"{planned:%H:%M} {depart} to {dest}: not in today's timetable"
+    return key, {"status": "not in timetable", "summary": summary}
+
+
+def alert_status(now: datetime) -> dict[str, dict]:
+    home = os.environ["RTT_ORIGIN"]
+    other = os.environ["RTT_DESTINATION"]
+    morning = time.fromisoformat(os.environ["TRAINS_USUAL_MORNING"])
+    evening = time.fromisoformat(os.environ["TRAINS_USUAL_EVENING"])
+    threshold_min = int(os.environ["TRAINS_DELAY_ALERT_MIN"])
+
+    access_token = _get_access_token()
+    today = now.date()
+
+    statuses = {}
+    for depart, dest, planned_time in (
+        (home, other, morning),
+        (other, home, evening),
+    ):
+        key, entry = _watched_status(
+            access_token, depart, dest, datetime.combine(today, planned_time), threshold_min
+        )
+        statuses[key] = entry
+    return statuses
 
 
 def fetch(now: datetime) -> list[Notice]:

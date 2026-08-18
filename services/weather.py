@@ -30,6 +30,20 @@ SOURCE = "weather"
 FEED_URL_TEMPLATE = "https://www.metoffice.gov.uk/public/data/PWSCache/WarningsRSS/Region/{region}"
 
 
+def alert_status(now: datetime) -> dict[str, dict]:
+    """Warnings as alert subjects: keyed by title, status is the description
+    - so a new warning alerts as new, and an updated description re-alerts.
+    Shape is a best guess until a live warning has actually been observed."""
+    statuses = {}
+    for notice in fetch(now):
+        key = f"{SOURCE}:{notice.title}"
+        summary = f"Weather warning: {notice.title}"
+        if notice.detail:
+            summary += f" - {notice.detail}"
+        statuses[key] = {"status": notice.detail or "", "summary": summary}
+    return statuses
+
+
 def fetch(now: datetime) -> list[Notice]:
     region = os.environ["METOFFICE_REGION"]
 

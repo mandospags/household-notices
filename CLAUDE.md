@@ -19,7 +19,7 @@ print output.
 
 ## Current state
 
-Working Phase 1 digest with four sources:
+Working Phase 1 digest with six sources:
 
 - `digest.py` — daily-digest entry point. Loads `.env`, calls each
   service's `fetch(now)`, buckets notices into "today"/"upcoming", also
@@ -48,6 +48,11 @@ Working Phase 1 digest with four sources:
   roadworks/closures actually on the calculated route (via calculateRoute's
   own `sections`, not a bounding-box guess — see module docstring for why
   that distinction matters).
+- `services/mass.py` — weekly Mass times for Burghclere (FSSPX district
+  bulletin page), scraped (no API/RSS); table is date-specific per week,
+  not a generic recurring schedule, so feast-day exceptions are already
+  reflected. Needs a browser-like User-Agent (bare requests UA gets a 403).
+  Digest-only.
 
 `weather`, `trains`, and `traffic` are alert-capable (`alert_status(now)`);
 the others are digest-only.
@@ -105,6 +110,8 @@ built. Completed work is just git history — no changelog file.
 
 ## Ways of working
 
+- "Lets discuss" means discuss only — no code/file edits until the user
+  explicitly says to proceed.
 - Keep this file's "Current state" section and SPEC.md's "Backlog" true —
   update them in the same change when facts drift. Don't rewrite the rest
   of `SPEC.md`.

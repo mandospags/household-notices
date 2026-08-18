@@ -130,7 +130,6 @@ built. Everything else in this doc is frozen original intent.)
 - Test Valley planning applications — HTML scrape, no known API.
 - St Michael's School, Burghclere — upcoming events.
 - 1962 Ordo / today's liturgical calendar day.
-- St Michael's Church — upcoming Mass times.
 
 Deferred trains ideas (waiting on real commute experience — don't implement
 unprompted): scheduled digest runs (e.g. 3pm/4pm); anchoring on usual

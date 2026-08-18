@@ -3,10 +3,10 @@ from datetime import datetime
 from dotenv import load_dotenv
 
 from render import render_digest
-from services import air_quality, bins, traffic, trains, weather
+from services import air_quality, bins, mass, traffic, trains, weather
 from services.base import Notice
 
-SERVICES = [bins, air_quality, weather, trains, traffic]
+SERVICES = [bins, air_quality, weather, trains, traffic, mass]
 ALERT_SERVICES = [trains, weather, traffic]
 
 

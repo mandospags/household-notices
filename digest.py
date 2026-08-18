@@ -6,7 +6,7 @@ from render import render_digest
 from services import air_quality, bins, trains, weather
 from services.base import Notice
 
-SERVICES = [bins, air_quality, weather]
+SERVICES = [bins, air_quality, weather, trains]
 
 
 def _section(notice: Notice, today) -> str | None:
@@ -28,14 +28,9 @@ def main() -> None:
     all_notices: list[Notice] = []
     for service in SERVICES:
         try:
-            all_notices.extend(service.fetch())
+            all_notices.extend(service.fetch(now))
         except Exception as exc:
             print(f"[{service.SOURCE}] failed: {exc}")
-
-    try:
-        all_notices.extend(trains.fetch(now))
-    except Exception as exc:
-        print(f"[{trains.SOURCE}] failed: {exc}")
 
     today_notices = sorted(
         (n for n in all_notices if _section(n, today) == "today"), key=lambda n: n.source

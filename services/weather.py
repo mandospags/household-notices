@@ -17,6 +17,7 @@ past that window - worth revisiting once we've actually seen a live one.
 """
 
 import os
+from datetime import datetime
 from email.utils import parsedate_to_datetime
 from xml.etree import ElementTree
 
@@ -29,7 +30,7 @@ SOURCE = "weather"
 FEED_URL_TEMPLATE = "https://www.metoffice.gov.uk/public/data/PWSCache/WarningsRSS/Region/{region}"
 
 
-def fetch() -> list[Notice]:
+def fetch(now: datetime) -> list[Notice]:
     region = os.environ["METOFFICE_REGION"]
 
     resp = requests.get(FEED_URL_TEMPLATE.format(region=region), timeout=15)

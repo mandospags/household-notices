@@ -5,13 +5,13 @@ The feed has one <item> per monitoring station, each with a Mon-Fri set of
 index values for "this week" and a <pubDate> for when it was built. Labels
 are weekday names, not calendar dates, so they're anchored to the Monday of
 the pubDate's week. If the feed is stale (e.g. not rebuilt over a weekend),
-the resulting dates may fall outside today/tomorrow/day-after - the harness's
+the resulting dates may fall outside today/tomorrow/day-after - the digest's
 existing window filter drops those silently, same as any other source.
 """
 
 import os
 import re
-from datetime import timedelta
+from datetime import datetime, timedelta
 from email.utils import parsedate_to_datetime
 from xml.etree import ElementTree
 
@@ -40,7 +40,7 @@ def _band(index: int) -> str:
     return "Very High"
 
 
-def fetch() -> list[Notice]:
+def fetch(now: datetime) -> list[Notice]:
     station = os.environ["DAQI_STATION"]
 
     resp = requests.get(FEED_URL, timeout=15)

@@ -9,7 +9,7 @@ departures and "upcoming" is a preview of this evening's Waterloo->Andover
 window; from noon on, "today" is the next 2 live Waterloo->Andover arrivals
 and "upcoming" is a preview of tomorrow morning's Andover->Waterloo window.
 Returned as ordinary Notices (section="today"/"upcoming" overrides the
-harness's date-based bucketing) rather than a separate board.
+digest's date-based bucketing) rather than a separate board.
 
 The RTT API returns and accepts naive local (Europe/London) timestamps, e.g.
 "2026-08-17T18:06:00" with no offset - not UTC. Everything here stays naive

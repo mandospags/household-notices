@@ -57,7 +57,7 @@ def _call(path: str, payload: dict) -> dict:
     return _decrypt(resp.text)
 
 
-def fetch() -> list[Notice]:
+def fetch(now: datetime) -> list[Notice]:
     uprn = os.environ["TVBC_UPRN"]
     data = _call(
         "kmbd/collectionDay",

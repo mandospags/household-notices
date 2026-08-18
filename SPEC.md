@@ -1,5 +1,9 @@
-```markdown
 # Local Status & Alerts Digest — Project Spec
+
+> **Status note:** this document holds the original requirements/intent and
+> the living Backlog section at the bottom. The rest is deliberately not kept
+> in sync with implementation — for current state (what's built, how sources
+> actually work) see `CLAUDE.md`.
 
 ## Overview
 A personal tool that monitors a handful of local services and conditions
@@ -113,4 +117,24 @@ to persistent storage later.
 - Not trying to cover every possible local source or build all sources at
   once — starting with one or two from the list above and expanding
   incrementally.
-```
+
+## Backlog
+
+(Living section — candidate next sources, none researched yet; remove when
+built. Everything else in this doc is frozen original intent.)
+
+- Road closures/roadworks — DfT Street Manager open data (real API).
+- Met Office day-to-day forecast (DataHub, separate from the warnings feed
+  already built) — would fill the "baseline weather summary" requirement,
+  currently uncovered.
+- Traffic conditions for both daily commutes (mine and my wife's) — TomTom
+  Traffic API as the candidate; needs routes defined in config and a free
+  API key.
+- Test Valley planning applications — HTML scrape, no known API.
+- St Michael's School, Burghclere — upcoming events.
+- 1962 Ordo / today's liturgical calendar day.
+- St Michael's Church — upcoming Mass times.
+
+Deferred trains ideas (waiting on real commute experience — don't implement
+unprompted): scheduled digest runs (e.g. 3pm/4pm); anchoring on usual
+departures instead of "next 2 from now"; ±30 min window showing 3 trains.

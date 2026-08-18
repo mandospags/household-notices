@@ -1,45 +1,87 @@
 # CLAUDE.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+Guidance for Claude Code and other agents working in this repo. This file is
+the source of truth for **current state**; `SPEC.md` holds the original
+requirements/intent plus the backlog of candidate sources, and is not kept
+in sync with implementation details.
 
-## Project status
+Personal solo tool, not an enterprise platform — prefer the simple, flat,
+obvious approach over abstractions, frameworks, or process.
 
-Pre-implementation. No source code, dependency manifest, or test setup exists
-yet — only `SPEC.md` (full requirements) and this file. There are no build,
-lint, or test commands to run because there is nothing to build yet.
+## What this is
 
-`.gitignore` (`.venv/`, `__pycache__/`, `*.pyc`, `*.db`, `*.sqlite`) implies a
-Python implementation with local SQLite state, but this isn't confirmed by
-any committed code — verify against what's actually in the repo before
-assuming it.
+A personal digest tool for one UK postcode: polls a handful of local
+services (bins, air quality, weather warnings, trains so far) and prints a
+daily digest of what's relevant today/upcoming. See `SPEC.md` for the full
+original requirements, including the Phase 2 goal (containerized, Telegram +
+Home Assistant outputs, scheduler). Phase 1 (now) is manual local runs with
+print output.
 
-## What this project is
+## Current state
 
-See SPEC.md for full requirements. In short: a personal digest tool that
-polls/scrapes a handful of local UK services (bin collection, rail
-disruptions, roadworks, planning applications, power/water/mobile outages,
-weather and flood alerts) for one postcode, and surfaces only what's new or
-relevant via Telegram and a Home Assistant dashboard.
+Working Phase 1 digest with four sources:
 
-Key design constraints from the spec, worth keeping in mind for any
-implementation work:
+- `digest.py` — entry point. Loads `.env`, calls each service's
+  `fetch(now)`, buckets notices into "today"/"upcoming", renders. Runs on
+  demand; a future `alerts.py` (poll-and-diff one-liners for sudden items)
+  will be a sibling entry point sharing `services/`, not merged into it.
+- `render.py` — plain-text digest output (Phase 1 stand-in for
+  Telegram/HA).
+- `services/base.py` — the `Notice` dataclass (the whole inter-module
+  contract).
+- `services/bins.py` — Test Valley bin collections (iTouchVision API).
+- `services/air_quality.py` — DEFRA DAQI forecast RSS.
+- `services/weather.py` — Met Office severe weather warnings RSS.
+- `services/trains.py` — Realtime Trains commute rows (Andover ⇄ Waterloo).
 
-- **Two cadences, not one loop**: a daily digest (planned/dated items —
-  bins, engineering works, roadworks, planning apps — for today/tomorrow/day
-  after) and a separate frequent poll-and-diff check (sudden items — power,
-  water, mobile, weather, flood — notify only on state change, no
-  repeat-noise).
-- **Sources are pluggable one at a time** — the tool should have one
-  consistent way to add a new source without restructuring existing ones.
-  Not all sources need to exist at once.
-- **Phase 1 (now)**: standalone scripts run manually, no Telegram/HA
-  integration — notifications can just print/log locally.
-- **Phase 2 (later)**: containerized service with Telegram + Home Assistant
-  outputs and a scheduler. Phase 1 should be built so Phase 2 is a
-  relocation/config change, not a rewrite: externalize config (postcode,
-  API keys/tokens, notification targets) via `.env` from the start, and
-  keep "last seen state" (for diffing) in a form that's easy to relocate to
-  persistent storage later.
+Deliberately **not** built yet: last-seen-state/diffing, the frequent
+poll-and-diff cadence for sudden alerts, any scheduler, Telegram/HA output.
+Don't add infrastructure for these speculatively.
 
-Config via `.env` (see `.env.example` once it exists). Do not hardcode
-postcode/tokens/paths.
+## Run it
+
+```
+python digest.py
+```
+
+Setup: `python -m venv .venv`, install `requirements.txt`, copy
+`.env.example` to `.env` and fill it in (only `RTT_REFRESH_TOKEN` is a real
+credential; the rest are location/tuning values with working defaults).
+
+No tests or linter yet — deliberate at this size. Verify changes by running
+the digest.
+
+## Adding a source
+
+One consistent pattern, no registry or base class:
+
+1. New module `services/<name>.py` with a module docstring, `SOURCE = "<name>"`,
+   and `fetch(now: datetime) -> list[Notice]` (ignore `now` if unneeded).
+2. Add the module to `SERVICES` in `digest.py`.
+3. Config via `os.environ` — add documented entries to `.env.example`
+   (and `.env`). Never hardcode postcode/UPRN/tokens/region codes.
+4. Raise on failure — the digest catches per-service exceptions and keeps
+   going, so no defensive try/except inside services.
+
+By default a `Notice` is bucketed by `date` (today vs upcoming, anything
+past dropped); set `section=` explicitly only when that's wrong (trains does
+this for its preview rows).
+
+**Write a real module docstring**: capture what an agent can't rediscover
+cheaply — feed quirks, auth model, timezone behavior, things unconfirmed
+because they haven't been observed live yet. See `services/bins.py` and
+`services/trains.py` for the standard.
+
+## Backlog
+
+Lives in `SPEC.md` ("Backlog" section) — keep it there, remove items when
+built. Completed work is just git history — no changelog file.
+
+## Ways of working
+
+- Keep this file's "Current state" section and SPEC.md's "Backlog" true —
+  update them in the same change when facts drift. Don't rewrite the rest
+  of `SPEC.md`.
+- Keep secrets out of git: real values in `.env` (ignored), documented
+  placeholders in `.env.example`.
+- Small focused commits when asked to commit.

@@ -4,11 +4,11 @@ from dotenv import load_dotenv
 
 import telegram
 from render import render_digest
-from services import air_quality, bins, mass, traffic, trains, weather
+from services import air_quality, bins, mass, powercuts, traffic, trains, weather
 from services.base import Notice, is_notable
 
 SERVICES = [bins, air_quality, weather, trains, traffic, mass]
-ALERT_SERVICES = [trains, weather, traffic]
+ALERT_SERVICES = [trains, weather, traffic, powercuts]
 
 
 def _alert_lines(now: datetime) -> list[str]:

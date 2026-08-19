@@ -22,14 +22,16 @@ Scheduling lives outside this repo, in the homelab repo's
 `uv1/scripts/household-notices-{digest,alerts}.{service,timer}` (systemd
 timers, installed on `uv1`) — not tracked or run from here. `digest.py`
 runs 06:00 daily plus 14:00 weekdays (Europe/London, DST-aware); `alerts.py`
-runs every 10 min, 06:00-20:00 daily. Both invoke `.venv/bin/python`
-directly with `WorkingDirectory` set to this repo, so `.env` still loads
-the normal cwd-relative way — no code changes were needed for this repo to
-become schedulable.
+runs every 10 min, 24/7 (widened from 06:00-20:00 on 2026-08-19 so
+`services/powercuts.py`'s always-on check — see `ACTIVE_HOURS` below —
+actually gets polled overnight; daytime-only services stay gated in code
+either way). Both invoke `.venv/bin/python` directly with `WorkingDirectory`
+set to this repo, so `.env` still loads the normal cwd-relative way — no
+code changes were needed for this repo to become schedulable.
 
 ## Current state
 
-Working Phase 1 digest with six sources:
+Working Phase 1 digest with seven sources:
 
 - `digest.py` — daily-digest entry point. Loads `.env`, calls each
   service's `fetch(now)`, buckets notices into "today"/"upcoming", also
@@ -49,7 +51,14 @@ Working Phase 1 digest with six sources:
   transition, not on every live-estimate wobble. Time-blind by design —
   cadence belongs to the invoker (manual now, cron in Phase 2). Kept as a
   sibling of `digest.py` sharing `services/`; don't merge the two cadences
-  into one pipeline.
+  into one pipeline. A service can set a module-level `ACTIVE_HOURS =
+  (start_hour, end_hour)` (end exclusive) to only be polled/alerted inside
+  that window — `trains`/`weather`/`traffic` are `(6, 20)` (daytime-only,
+  no point paging about a train at 3am); `powercuts` has none (always-on).
+  A service outside its window has its previous state carried forward
+  unchanged (same mechanism as a failed fetch) rather than dropped, so an
+  overnight run doesn't erase yesterday's daytime status and cause a bogus
+  `[new]` when it wakes up.
 - `render.py` — builds the plain-text digest as a string (`digest.py`
   prints it and also sends it via `telegram.py`).
 - `telegram.py` — send-only delivery to the shared "Home" Telegram bot
@@ -97,9 +106,24 @@ Working Phase 1 digest with six sources:
   `MASS_CACHE_FILE` (JSON, gitignored) and only re-fetched once the cache
   is over an hour old; a stale cache is served if a re-fetch fails outright,
   so `fetch` only raises with no cache at all to fall back on. Digest-only.
+- `services/powercuts.py` — SSEN Distribution power cuts, via the API
+  behind their consumer PowerTrack tool (found through the CKAN dataset
+  metadata, not the map tool itself; needs a browser User-Agent like
+  mass.py, same 403-without-one gotcha). No server-side postcode filter —
+  fetches the full GB-wide fault list every call and filters client-side on
+  exact match against `HOME_POSTCODE` (full postcode or bare outward code,
+  not a prefix match). One feed covers planned and unplanned outages,
+  distinguished by `type`/`jobStatus`. Alert-only (no `fetch()`/digest
+  notices yet — a deliberate deviation from the usual pattern, see the
+  module docstring) and always-on (no `ACTIVE_HOURS`). SSEN's feed drops a
+  restored fault within about a minute — faster than any sane poll cadence
+  — so alerts.py's existing "disappearance is silent" rule means a power
+  cut alerts once at onset with no explicit "restored" line; accepted as
+  consistent with trains.py's daily key rollover rather than adding state
+  to change it.
 
-`weather`, `trains`, and `traffic` are alert-capable (`alert_status(now)`);
-the others are digest-only.
+`weather`, `trains`, `traffic`, and `powercuts` are alert-capable
+(`alert_status(now)`); the others are digest-only.
 
 Deliberately **not** built yet: containerization, Home Assistant output.
 Don't add infrastructure for these speculatively.
@@ -138,12 +162,27 @@ this for its preview rows).
 To make a source alert-capable, additionally expose
 `alert_status(now) -> dict` mapping a stable key (`"<SOURCE>:..."`) to
 `{"status": comparable string, "summary": printable line}`, and add the
-module to `ALERT_SERVICES` in `alerts.py`. The key must survive re-fetches
-of the same underlying thing (see alerts.py's docstring for the diff
-semantics). Keep `status` a coarse category (e.g. `"on time"`/`"late"`, not
-an exact delay in minutes) — see trains.py/traffic.py — so alerts.py fires
-once per real transition instead of on every poll's live-value wobble; put
-the precise detail in `summary` instead, where it doesn't affect the diff.
+module to `ALERT_SERVICES` in `alerts.py` (and usually `digest.py` too, for
+free Alerts-block visibility — it reads its own `ALERT_SERVICES` list
+independently). The key must survive re-fetches of the same underlying
+thing (see alerts.py's docstring for the diff semantics). Keep `status` a
+coarse category (e.g. `"on time"`/`"late"`, not an exact delay in minutes)
+— see trains.py/traffic.py — so alerts.py fires once per real transition
+instead of on every poll's live-value wobble; put the precise detail in
+`summary` instead, where it doesn't affect the diff.
+
+To scope an alert-capable source to particular hours (e.g. it'd be noise
+overnight), set a module-level `ACTIVE_HOURS = (start_hour, end_hour)` (end
+exclusive) — `alerts.py` skips it outside that window and carries its last
+state forward untouched. Omit it (or leave `None`) for something worth
+knowing about any time, like a power cut.
+
+`HOME_POSTCODE` is the shared postcode config — reuse it rather than adding
+a new per-source postcode var. It is not a full "one var updates
+everything if we move" story though: several other configs (`TVBC_UPRN`,
+`DAQI_STATION`, `METOFFICE_REGION`, `RTT_ORIGIN`, `TRAFFIC_HOME/STATION/
+SCHOOL`) are derived from location but require a manual re-derivation step
+on a move — see the checklist at the bottom of `.env.example`.
 
 **Write a real module docstring**: capture what an agent can't rediscover
 cheaply — feed quirks, auth model, timezone behavior, things unconfirmed

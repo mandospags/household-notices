@@ -56,6 +56,7 @@ import requests
 from .base import Notice
 
 SOURCE = "traffic"
+ACTIVE_HOURS = (6, 20)  # daytime only - see alerts.py's ACTIVE_HOURS gate
 
 ROUTE_URL_TEMPLATE = (
     "https://api.tomtom.com/routing/1/calculateRoute/{start}:{end}/json"

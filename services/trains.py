@@ -62,6 +62,7 @@ from .base import Notice
 API_BASE = "https://data.rtt.io"
 
 SOURCE = "trains"
+ACTIVE_HOURS = (6, 20)  # daytime only - see alerts.py's ACTIVE_HOURS gate
 
 TRAINS_BOARD_SIZE = 3
 # Wide enough that journey-time drift between the anchor (always a

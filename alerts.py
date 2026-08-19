@@ -17,12 +17,24 @@ records silently rather than printing [new] - a fresh key starting out fine
 isn't news, only one starting out already delayed/cancelled/etc is. A key
 whose status changed prints its summary; a key that disappears is dropped
 silently (train keys roll over daily by design, so disappearance is not
-treated as an event). Services are expected to keep their compared `status`
-coarse/categorical (see trains.py and traffic.py) so a train or route
-sitting continuously late/delayed alerts once at the transition, not on
-every live-estimate wobble in between. If a service errors, its previous
+treated as an event - powercuts.py relies on this too: SSEN's feed drops a
+restored fault within about a minute, well inside our poll cadence, so a
+power cut alerts once at onset and then just goes quiet rather than getting
+an explicit "restored" line). Services are expected to keep their compared
+`status` coarse/categorical (see trains.py and traffic.py) so a train or
+route sitting continuously late/delayed alerts once at the transition, not
+on every live-estimate wobble in between. If a service errors, its previous
 keys are carried forward untouched so a transient failure doesn't re-alert
 everything as [new] on recovery.
+
+A service may optionally set a module-level ACTIVE_HOURS = (start_hour,
+end_hour) (end exclusive) to only be polled/alerted within that window -
+e.g. trains/traffic/weather are daytime-only (6-20) so a 10-min cadence
+doesn't page overnight about things that don't matter then. Omit
+ACTIVE_HOURS (or leave it None) for an always-on service like powercuts,
+which is exactly the kind of thing you want to hear about at 3am. This is
+the whole mechanism for scoping a new alert source to particular hours -
+no scheduler/timer changes needed for that.
 """
 
 import json
@@ -33,10 +45,18 @@ from pathlib import Path
 from dotenv import load_dotenv
 
 import telegram
-from services import traffic, trains, weather
+from services import powercuts, traffic, trains, weather
 from services.base import is_notable
 
-ALERT_SERVICES = [trains, weather, traffic]
+ALERT_SERVICES = [trains, weather, traffic, powercuts]
+
+
+def _active(service, now: datetime) -> bool:
+    active_hours = getattr(service, "ACTIVE_HOURS", None)
+    if active_hours is None:
+        return True
+    start, end = active_hours
+    return start <= now.hour < end
 
 
 def main() -> None:
@@ -49,16 +69,24 @@ def main() -> None:
     )
 
     current: dict[str, dict] = {}
-    failed_sources = []
+    carry_forward_sources = []
     for service in ALERT_SERVICES:
+        if not _active(service, now):
+            # Outside this service's window - leave its last-known state
+            # alone (see carry-forward below) rather than dropping it, so
+            # the state file doesn't lose it over the inactive stretch and
+            # its next active run doesn't misread a real "no change" as
+            # [new].
+            carry_forward_sources.append(service.SOURCE)
+            continue
         try:
             current.update(service.alert_status(now))
         except Exception as exc:
             print(f"[{service.SOURCE}] failed: {exc}")
-            failed_sources.append(service.SOURCE)
+            carry_forward_sources.append(service.SOURCE)
 
     for key, status in previous.items():
-        if key.split(":", 1)[0] in failed_sources:
+        if key.split(":", 1)[0] in carry_forward_sources:
             current[key] = {"status": status, "summary": ""}
 
     changes = []

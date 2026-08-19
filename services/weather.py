@@ -26,6 +26,7 @@ import requests
 from .base import Notice
 
 SOURCE = "weather"
+ACTIVE_HOURS = (6, 20)  # daytime only - see alerts.py's ACTIVE_HOURS gate
 
 FEED_URL_TEMPLATE = "https://www.metoffice.gov.uk/public/data/PWSCache/WarningsRSS/Region/{region}"
 

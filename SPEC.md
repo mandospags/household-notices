@@ -130,6 +130,25 @@ built. Everything else in this doc is frozen original intent.)
 - Test Valley planning applications — HTML scrape, no known API.
 - St Michael's School, Burghclere — upcoming events.
 - 1962 Ordo / today's liturgical calendar day.
+- Environment Agency flood warnings — `environment.data.gov.uk/flood-monitoring`
+  REST API, no key/registration needed. No postcode filter — query by
+  `county=` or `lat/long/dist` (postcode needs a geocode step first, or a
+  hardcoded county). Severity is already a small fixed category (severe
+  warning/warning/alert/no-longer-in-force), so `alert_status` is close to
+  free. Best-fit candidate of this batch — closest to a drop-in `fetch()` +
+  `alert_status()`.
+- UK bank holidays — `www.gov.uk/bank-holidays.json` (or
+  `/england-and-wales.json`), keyless, trivial JSON (`events: [{title,
+  date, notes, bunting}]`). Lowest effort in this list; digest-only, no
+  `alert_status` (holidays aren't sudden). Also useful as context data for
+  other services (e.g. bins/trains on a bank holiday), not just its own
+  notice.
+- Southern Water supply interruptions — only a customer-facing "enter your
+  postcode" web page found (`southernwater.co.uk/works-or-issues-in-my-area`);
+  no documented API turned up. Would likely mean scraping that page's
+  postcode-lookup endpoint (network-inspect it first to see if it's backed
+  by an undocumented JSON call) — weakest-feasibility candidate here,
+  closer to mass.py's scrape situation than to flood-monitoring's clean API.
 
 Deferred trains ideas (waiting on real commute experience — don't implement
 unprompted): scheduled digest runs (e.g. 3pm/4pm); anchoring on usual

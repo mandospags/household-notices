@@ -7,6 +7,11 @@ are weekday names, not calendar dates, so they're anchored to the Monday of
 the pubDate's week. If the feed is stale (e.g. not rebuilt over a weekend),
 the resulting dates may fall outside today/tomorrow/day-after - the digest's
 existing window filter drops those silently, same as any other source.
+
+Upcoming days with the same index as today are dropped - unchanged air
+quality isn't news, only a forecast day that actually differs is. If
+today's entry is missing from the feed, nothing is suppressed (no baseline
+to compare against).
 """
 
 import os
@@ -62,14 +67,24 @@ def fetch(now: datetime) -> list[Notice]:
     monday = pub_date - timedelta(days=pub_date.weekday())
 
     description = item.findtext("description") or ""
-    notices = []
+    entries = []
     for day_abbr, index_str in re.findall(r"(Mon|Tue|Wed|Thu|Fri|Sat|Sun): (\d+)", description):
         forecast_date = monday + timedelta(days=WEEKDAY_OFFSETS[day_abbr])
-        index = int(index_str)
+        entries.append((forecast_date, int(index_str)))
+
+    today = now.date()
+    today_index = next((index for forecast_date, index in entries if forecast_date == today), None)
+
+    notices = []
+    for forecast_date, index in entries:
+        # Upcoming days unchanged from today aren't worth a separate line -
+        # only a day where the forecast actually differs is news.
+        if forecast_date != today and index == today_index:
+            continue
         notices.append(
             Notice(
                 source=SOURCE,
-                title=f"Air quality: {_band(index)} ({index})",
+                title=f"Air pollution: {_band(index)} ({index})",
                 date=forecast_date,
             )
         )

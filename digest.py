@@ -2,6 +2,7 @@ from datetime import datetime
 
 from dotenv import load_dotenv
 
+import telegram
 from render import render_digest
 from services import air_quality, bins, mass, traffic, trains, weather
 from services.base import Notice
@@ -61,7 +62,13 @@ def main() -> None:
 
     alert_lines = _alert_lines(now)
 
-    render_digest(now, alert_lines, today_notices, upcoming_notices)
+    text = render_digest(now, alert_lines, today_notices, upcoming_notices)
+    print(text)
+
+    try:
+        telegram.send(text)
+    except Exception as exc:
+        print(f"[telegram] failed: {exc}")
 
 
 if __name__ == "__main__":

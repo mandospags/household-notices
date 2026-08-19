@@ -11,11 +11,12 @@ obvious approach over abstractions, frameworks, or process.
 ## What this is
 
 A personal digest tool for one UK postcode: polls a handful of local
-services (bins, air quality, weather warnings, trains so far) and prints a
-daily digest of what's relevant today/upcoming. See `SPEC.md` for the full
-original requirements, including the Phase 2 goal (containerized, Telegram +
-Home Assistant outputs, scheduler). Phase 1 (now) is manual local runs with
-print output.
+services (bins, air quality, weather warnings, trains so far) and prints
+and Telegram-sends a daily digest of what's relevant today/upcoming. See
+`SPEC.md` for the full original requirements, including the Phase 2 goal
+(containerized, Home Assistant output, scheduler). Phase 1 (now) is manual
+local runs; Telegram delivery has landed early, ahead of the rest of
+Phase 2.
 
 ## Current state
 

@@ -14,33 +14,28 @@ def render_digest(
     alert_lines: list[str],
     today_notices: list[Notice],
     upcoming_notices: list[Notice],
-) -> None:
-    print(f"Household digest - {now:%A %d %B %Y}")
-    print()
+) -> str:
+    lines = [f"Household digest - {now:%A %d %B %Y, %H:%M}", ""]
 
-    print("Alerts")
-    print("------")
+    lines += ["Alerts", "------"]
     if alert_lines:
-        for line in alert_lines:
-            print(f"- {line}")
+        lines += [f"- {line}" for line in alert_lines]
     else:
-        print("- No active alerts.")
-    print()
+        lines.append("- No active alerts.")
+    lines.append("")
 
-    today_heading = f"Today ({now:%A %d %B %Y}, {now:%H:%M})"
-    print(today_heading)
-    print("-" * len(today_heading))
+    today_heading = f"Today ({now:%A})"
+    lines += [today_heading, "-" * len(today_heading)]
     if today_notices:
-        for n in today_notices:
-            print(_line(n, show_date=False))
+        lines += [_line(n, show_date=False) for n in today_notices]
     else:
-        print("- Nothing due today.")
-    print()
+        lines.append("- Nothing due today.")
+    lines.append("")
 
-    print("Upcoming")
-    print("--------")
+    lines += ["Upcoming", "--------"]
     if upcoming_notices:
-        for n in upcoming_notices:
-            print(_line(n, show_date=True))
+        lines += [_line(n, show_date=True) for n in upcoming_notices]
     else:
-        print("- Nothing upcoming.")
+        lines.append("- Nothing upcoming.")
+
+    return "\n".join(lines)

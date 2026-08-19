@@ -116,6 +116,11 @@ built. Completed work is just git history — no changelog file.
 
 - "Lets discuss" means discuss only — no code/file edits until the user
   explicitly says to proceed.
+- For any non-trivial change (new behavior, new files, new env vars/config,
+  anything beyond a one-line fix) propose the approach first and get a
+  go-ahead before writing code — don't jump straight from "here's a
+  problem" to an implementation. Trivial fixes (typos, obvious one-liners)
+  don't need this.
 - Keep this file's "Current state" section and SPEC.md's "Backlog" true —
   update them in the same change when facts drift. Don't rewrite the rest
   of `SPEC.md`.

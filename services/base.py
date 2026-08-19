@@ -2,6 +2,15 @@ from dataclasses import dataclass
 from datetime import date as Date
 
 
+def is_notable(status: str) -> bool:
+    """Whether an alert_status() status is worth surfacing - "clear" and
+    "on time..." (which may carry a platform suffix) are nominal, everything
+    else (delayed, cancelled, not in timetable, ...) is notable. Shared by
+    digest.py's Alerts block and alerts.py's new-key suppression so both
+    apply the same nominal/notable line."""
+    return status != "clear" and not status.startswith("on time")
+
+
 @dataclass
 class Notice:
     source: str

@@ -261,20 +261,27 @@ def _watched_status(
         if row.from_planned != planned:
             continue
         if row.is_cancelled:
-            state = "CANCELLED"
+            category = "CANCELLED"
+            detail = "CANCELLED"
         else:
             delay_min = 0
             if row.from_estimate:
                 delay_min = int((row.from_estimate - row.from_planned).total_seconds() // 60)
             if delay_min >= threshold_min:
-                state = f"exp {row.from_estimate:%H:%M} (+{delay_min}m)"
+                category = "late"
+                detail = f"exp {row.from_estimate:%H:%M} (+{delay_min}m)"
             else:
-                state = "on time"
-        status = f"{state}, plat {row.platform or '?'}"
+                category = "on time"
+                detail = "on time"
+        # status is deliberately coarse (category + platform, no minutes) so
+        # alerts.py's diff fires once per category/platform change, not on
+        # every minute of live-estimate wobble while a train stays late -
+        # the exact delay still shows up in summary, just isn't compared.
+        status = f"{category}, plat {row.platform or '?'}"
         # uniqueIdentity is e.g. "gb-nr:L79428:2026-08-18" - schedule identity
         # plus departure date, so keys roll over naturally each day.
         key = f"{SOURCE}:{svc['scheduleMetadata']['uniqueIdentity']}"
-        summary = f"{planned:%H:%M} {home_name} to {row.board_destination}: {status}"
+        summary = f"{planned:%H:%M} {home_name} to {row.board_destination}: {detail}, plat {row.platform or '?'}"
         return key, {"status": status, "summary": summary}
 
     # The usual train not being in the timetable at all is itself an alert

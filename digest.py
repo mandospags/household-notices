@@ -5,14 +5,10 @@ from dotenv import load_dotenv
 import telegram
 from render import render_digest
 from services import air_quality, bins, mass, traffic, trains, weather
-from services.base import Notice
+from services.base import Notice, is_notable
 
 SERVICES = [bins, air_quality, weather, trains, traffic, mass]
 ALERT_SERVICES = [trains, weather, traffic]
-
-
-def _is_notable(status: str) -> bool:
-    return status != "clear" and not status.startswith("on time")
 
 
 def _alert_lines(now: datetime) -> list[str]:
@@ -24,7 +20,7 @@ def _alert_lines(now: datetime) -> list[str]:
             print(f"[{service.SOURCE}] failed: {exc}")
             continue
         lines.extend(
-            entry["summary"] for entry in statuses.values() if _is_notable(entry["status"])
+            entry["summary"] for entry in statuses.values() if is_notable(entry["status"])
         )
     return lines
 

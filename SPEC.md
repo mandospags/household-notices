@@ -135,10 +135,10 @@ Deferred trains ideas (waiting on real commute experience — don't implement
 unprompted): scheduled digest runs (e.g. 3pm/4pm); anchoring on usual
 departures instead of "next 2 from now"; ±30 min window showing 3 trains.
 
-Telegram output: daily digest now sends via `telegram.py` (send-only `sendMessage`, shared
-"Home" bot token also used by homelab-mcp — own process, not shared code; never polls
-`getUpdates`, so it's safe to share). Still open: alerts.py → DM (separate from the digest
-send), and splitting digest → group chat vs alerts → DM once there's more than one
-recipient. Full design (including the separate, isolated command-bot for homelab queries)
-lives in the homelab repo's `docs/specs/roadmap.md`, "Telegram Bot (shared platform)"
-section, since it spans repos.
+Telegram output: both digest.py and alerts.py now send via `telegram.py` (send-only
+`sendMessage`, shared "Home" bot token also used by homelab-mcp — own process, not shared
+code; never polls `getUpdates`, so it's safe to share). Still open: splitting digest → group
+chat vs alerts → DM once there's more than one recipient (both currently go to the same
+chat). Full design (including the separate, isolated command-bot for homelab queries) lives
+in the homelab repo's `docs/specs/roadmap.md`, "Telegram Bot (shared platform)" section,
+since it spans repos.

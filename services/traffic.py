@@ -186,11 +186,12 @@ def fetch(now: datetime) -> list[Notice]:
 def alert_status(now: datetime) -> dict[str, dict]:
     """Keyed by run name only, not direction - so the noon direction flip
     doesn't spawn [new] keys twice a day, at the cost of one (informative)
-    alert at the flip if the two directions' states differ. Delay under the
-    threshold reads as a single "clear" state, which silences sub-threshold
-    wobble; above it, each whole-minute change re-alerts (band it later if
-    that proves chatty in practice). Incidents (see fetch) are digest-only
-    for now - not wired into alerts."""
+    alert at the flip if the two directions' states differ. status is
+    deliberately just "clear"/"delayed" (not the exact minutes) so
+    alerts.py's diff fires once when a route crosses the threshold, not on
+    every whole-minute wobble while it stays delayed - exact minutes still
+    show up in summary. Incidents (see fetch) are digest-only for now - not
+    wired into alerts."""
     api_key = os.environ["TOMTOM_API_KEY"]
     threshold_min = int(os.environ["TRAFFIC_DELAY_ALERT_MIN"])
 
@@ -198,7 +199,7 @@ def alert_status(now: datetime) -> dict[str, dict]:
     for key_name, display_name, start, end in _routes(now):
         summary_data = _route_summary(api_key, start, end)
         delay_min = round(summary_data.get("trafficDelayInSeconds", 0) / 60)
-        status = "clear" if delay_min < threshold_min else f"+{delay_min} min"
+        status = "clear" if delay_min < threshold_min else "delayed"
         statuses[f"{SOURCE}:{key_name}"] = {
             "status": status,
             "summary": _line(display_name, summary_data),

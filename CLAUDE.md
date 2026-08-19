@@ -31,9 +31,16 @@ Working Phase 1 digest with six sources:
   share state with or affect `alerts.py`'s diff cadence.
 - `alerts.py` — poll-and-diff entry point for sudden items: one line per
   change vs last-seen state (`ALERTS_STATE_FILE`, JSON, gitignored),
-  silence otherwise. Time-blind by design — cadence belongs to the invoker
-  (manual now, cron in Phase 2). Kept as a sibling of `digest.py` sharing
-  `services/`; don't merge the two cadences into one pipeline.
+  silence otherwise, on both stdout and Telegram (sends the batch via
+  `telegram.py` only when there's something to say). A newly-seen key that's
+  already nominal (`is_notable()` false) records silently instead of
+  printing `[new]` — a fresh key starting out fine isn't news. Relies on
+  alert-capable services keeping `status` categorical (see trains.py/
+  traffic.py) so a train or route stuck delayed/late alerts once at the
+  transition, not on every live-estimate wobble. Time-blind by design —
+  cadence belongs to the invoker (manual now, cron in Phase 2). Kept as a
+  sibling of `digest.py` sharing `services/`; don't merge the two cadences
+  into one pipeline.
 - `render.py` — builds the plain-text digest as a string (`digest.py`
   prints it and also sends it via `telegram.py`).
 - `telegram.py` — send-only delivery to the shared "Home" Telegram bot
@@ -46,7 +53,8 @@ Working Phase 1 digest with six sources:
   unconditionally on every run (no on/off toggle yet — deliberately kept
   simple, add one if that becomes a problem).
 - `services/base.py` — the `Notice` dataclass (the whole inter-module
-  contract).
+  contract) and `is_notable(status)`, the nominal/notable line shared by
+  digest.py's Alerts block and alerts.py's new-key suppression.
 - `services/bins.py` — Test Valley bin collections (iTouchVision API).
 - `services/air_quality.py` — DEFRA DAQI forecast RSS.
 - `services/weather.py` — Met Office severe weather warnings RSS.
@@ -60,7 +68,9 @@ Working Phase 1 digest with six sources:
   board, upcoming = tomorrow morning's board (skips to Monday over a
   weekend). Also alert-capable (watches the two usual commute trains for
   delay/cancellation/platform changes) — that watch needs the *exact*
-  scheduled time, unlike the boards' nearest-match tolerance.
+  scheduled time, unlike the boards' nearest-match tolerance; its status is
+  categorical (`on time`/`late`/`CANCELLED` + platform, no minutes) so
+  alerts.py fires once per transition, not on every live-estimate wobble.
 - `services/traffic.py` — TomTom live traffic for the Station run and
   School run (direction flips at noon: Home→Station/School before, back
   Home after; the printed line shows the actual direction, e.g.
@@ -121,7 +131,10 @@ To make a source alert-capable, additionally expose
 `{"status": comparable string, "summary": printable line}`, and add the
 module to `ALERT_SERVICES` in `alerts.py`. The key must survive re-fetches
 of the same underlying thing (see alerts.py's docstring for the diff
-semantics).
+semantics). Keep `status` a coarse category (e.g. `"on time"`/`"late"`, not
+an exact delay in minutes) — see trains.py/traffic.py — so alerts.py fires
+once per real transition instead of on every poll's live-value wobble; put
+the precise detail in `summary` instead, where it doesn't affect the diff.
 
 **Write a real module docstring**: capture what an agent can't rediscover
 cheaply — feed quirks, auth model, timezone behavior, things unconfirmed

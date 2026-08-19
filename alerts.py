@@ -1,5 +1,8 @@
 """Poll-and-diff alerts for sudden items: one line per change, silence
-otherwise.
+otherwise. Non-empty runs also send the batch to Telegram (same "Home" bot
+as digest.py, via telegram.py) - empty runs neither print a Telegram
+message nor send one, keeping the silent-otherwise contract on both
+channels.
 
 Purely stateful, deliberately time-blind: each run compares the current
 fetch against whatever ALERTS_STATE_FILE recorded last run, however long ago
@@ -9,11 +12,17 @@ Phase 2).
 Contract with services: an alert-capable service exposes
 alert_status(now) -> dict mapping a stable key (prefixed "<SOURCE>:") to
 {"status": <comparable string>, "summary": <printable line>}. A key not seen
-before prints as [new]; a key whose status changed prints its summary; a key
-that disappears is dropped silently (train keys roll over daily by design,
-so disappearance is not treated as an event). If a service errors, its
-previous keys are carried forward untouched so a transient failure doesn't
-re-alert everything as [new] on recovery.
+before and already nominal (is_notable() false, e.g. "on time"/"clear")
+records silently rather than printing [new] - a fresh key starting out fine
+isn't news, only one starting out already delayed/cancelled/etc is. A key
+whose status changed prints its summary; a key that disappears is dropped
+silently (train keys roll over daily by design, so disappearance is not
+treated as an event). Services are expected to keep their compared `status`
+coarse/categorical (see trains.py and traffic.py) so a train or route
+sitting continuously late/delayed alerts once at the transition, not on
+every live-estimate wobble in between. If a service errors, its previous
+keys are carried forward untouched so a transient failure doesn't re-alert
+everything as [new] on recovery.
 """
 
 import json
@@ -23,7 +32,9 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 
+import telegram
 from services import traffic, trains, weather
+from services.base import is_notable
 
 ALERT_SERVICES = [trains, weather, traffic]
 
@@ -54,13 +65,19 @@ def main() -> None:
     for key, entry in current.items():
         old = previous.get(key)
         if old is None:
-            changes.append(f"[new] {entry['summary']}")
+            if is_notable(entry["status"]):
+                changes.append(f"[new] {entry['summary']}")
         elif old != entry["status"]:
             changes.append(entry["summary"])
 
     if changes:
+        text = "\n".join(changes)
         for line in changes:
             print(line)
+        try:
+            telegram.send(text)
+        except Exception as exc:
+            print(f"[telegram] failed: {exc}")
     else:
         print(f"{now:%H:%M} - no changes.")
 

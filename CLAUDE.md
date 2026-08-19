@@ -14,9 +14,18 @@ A personal digest tool for one UK postcode: polls a handful of local
 services (bins, air quality, weather warnings, trains so far) and prints
 and Telegram-sends a daily digest of what's relevant today/upcoming. See
 `SPEC.md` for the full original requirements, including the Phase 2 goal
-(containerized, Home Assistant output, scheduler). Phase 1 (now) is manual
-local runs; Telegram delivery has landed early, ahead of the rest of
-Phase 2.
+(containerized, Home Assistant output, scheduler). Phase 1 (now) is the
+implementation; Telegram delivery and scheduled execution have both landed
+early, ahead of the rest of Phase 2 (containerization, HA output).
+
+Scheduling lives outside this repo, in the homelab repo's
+`uv1/scripts/household-notices-{digest,alerts}.{service,timer}` (systemd
+timers, installed on `uv1`) — not tracked or run from here. `digest.py`
+runs 06:00 daily plus 14:00 weekdays (Europe/London, DST-aware); `alerts.py`
+runs every 10 min, 06:00-20:00 daily. Both invoke `.venv/bin/python`
+directly with `WorkingDirectory` set to this repo, so `.env` still loads
+the normal cwd-relative way — no code changes were needed for this repo to
+become schedulable.
 
 ## Current state
 
@@ -92,8 +101,8 @@ Working Phase 1 digest with six sources:
 `weather`, `trains`, and `traffic` are alert-capable (`alert_status(now)`);
 the others are digest-only.
 
-Deliberately **not** built yet: any scheduler, Home Assistant output. Don't
-add infrastructure for these speculatively.
+Deliberately **not** built yet: containerization, Home Assistant output.
+Don't add infrastructure for these speculatively.
 
 ## Run it
 

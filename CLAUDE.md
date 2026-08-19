@@ -52,7 +52,11 @@ Working Phase 1 digest with six sources:
   bulletin page), scraped (no API/RSS); table is date-specific per week,
   not a generic recurring schedule, so feast-day exceptions are already
   reflected. Needs a browser-like User-Agent (bare requests UA gets a 403).
-  Digest-only.
+  The page also throws frequent Cloudflare 520s (network/IP-dependent, not
+  a UA thing — confirmed with curl too), so results are cached to
+  `MASS_CACHE_FILE` (JSON, gitignored) and only re-fetched once the cache
+  is over an hour old; a stale cache is served if a re-fetch fails outright,
+  so `fetch` only raises with no cache at all to fall back on. Digest-only.
 
 `weather`, `trains`, and `traffic` are alert-capable (`alert_status(now)`);
 the others are digest-only.

@@ -34,21 +34,41 @@ Working Phase 1 digest with six sources:
   silence otherwise. Time-blind by design — cadence belongs to the invoker
   (manual now, cron in Phase 2). Kept as a sibling of `digest.py` sharing
   `services/`; don't merge the two cadences into one pipeline.
-- `render.py` — plain-text digest output (Phase 1 stand-in for
-  Telegram/HA).
+- `render.py` — builds the plain-text digest as a string (`digest.py`
+  prints it and also sends it via `telegram.py`).
+- `telegram.py` — send-only delivery to the shared "Home" Telegram bot
+  (`TELEGRAM_BOT_TOKEN`/`TELEGRAM_CHAT_ID`, same token as sibling repo
+  `homelab-mcp`, provisioned there — this repo only ever calls
+  `sendMessage`, never `getUpdates`, which is what makes sharing the token
+  safe). Plain text only, no `parse_mode` — avoids the HTML-escaping trap.
+  No 4096-char handling yet; an oversized digest surfaces as a loud
+  Telegram 400 rather than silently truncating. `digest.py` sends
+  unconditionally on every run (no on/off toggle yet — deliberately kept
+  simple, add one if that becomes a problem).
 - `services/base.py` — the `Notice` dataclass (the whole inter-module
   contract).
 - `services/bins.py` — Test Valley bin collections (iTouchVision API).
 - `services/air_quality.py` — DEFRA DAQI forecast RSS.
 - `services/weather.py` — Met Office severe weather warnings RSS.
-- `services/trains.py` — Realtime Trains commute rows (Andover ⇄ Waterloo);
-  also alert-capable (watches the two usual commute trains for
-  delay/cancellation/platform changes).
+- `services/trains.py` — Realtime Trains commute rows (Andover ⇄ Waterloo),
+  weekdays only. Each digest board is the usual commute train
+  (`TRAINS_USUAL_MORNING`/`EVENING`) plus the nearest one either side
+  (~3 total, including already-departed ones — useful context if the usual
+  one's running late). Split at `TRAINS_MORNING_CUTOFF` (not noon — "the
+  latest I'd still count as arriving today"): before it, today = morning
+  board, upcoming = today's evening board; from it on, today = evening
+  board, upcoming = tomorrow morning's board (skips to Monday over a
+  weekend). Also alert-capable (watches the two usual commute trains for
+  delay/cancellation/platform changes) — that watch needs the *exact*
+  scheduled time, unlike the boards' nearest-match tolerance.
 - `services/traffic.py` — TomTom live traffic for the Station run and
-  School run (from Home before noon, back Home after); also reports
-  roadworks/closures actually on the calculated route (via calculateRoute's
-  own `sections`, not a bounding-box guess — see module docstring for why
-  that distinction matters).
+  School run (direction flips at noon: Home→Station/School before, back
+  Home after; the printed line shows the actual direction, e.g.
+  "Home → Station", though `alert_status` keys stay direction-free so the
+  noon flip doesn't double-fire); also reports roadworks/closures actually
+  on the calculated route (via calculateRoute's own `sections`, not a
+  bounding-box guess — see module docstring for why that distinction
+  matters).
 - `services/mass.py` — weekly Mass times for Burghclere (FSSPX district
   bulletin page), scraped (no API/RSS); table is date-specific per week,
   not a generic recurring schedule, so feast-day exceptions are already
@@ -62,7 +82,7 @@ Working Phase 1 digest with six sources:
 `weather`, `trains`, and `traffic` are alert-capable (`alert_status(now)`);
 the others are digest-only.
 
-Deliberately **not** built yet: any scheduler, Telegram/HA output. Don't
+Deliberately **not** built yet: any scheduler, Home Assistant output. Don't
 add infrastructure for these speculatively.
 
 ## Run it

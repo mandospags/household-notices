@@ -4,12 +4,25 @@ https://api-portal.rtt.io - free tier, bearer auth. A long-life refresh
 token (RTT_REFRESH_TOKEN) is exchanged for a short-life access token via
 /api/get_access_token on every run.
 
-Split at noon: before noon, "today" is the next 2 live Andover->Waterloo
-departures and "upcoming" is a preview of this evening's Waterloo->Andover
-window; from noon on, "today" is the next 2 live Waterloo->Andover arrivals
-and "upcoming" is a preview of tomorrow morning's Andover->Waterloo window.
-Returned as ordinary Notices (section="today"/"upcoming" overrides the
-digest's date-based bucketing) rather than a separate board.
+Weekdays only - fetch() and alert_status() both return empty (no commute
+to watch) on Saturday/Sunday.
+
+Split at TRAINS_MORNING_CUTOFF (not noon - "the latest I'd still
+count as arriving today"): before the cutoff, "today" is a fixed board of
+the trains around the usual morning departure and "upcoming" is a preview
+of the trains around the usual evening return, both for today; from the
+cutoff on, "today" is the board around the usual evening return and
+"upcoming" previews tomorrow morning's board - skipping to Monday if
+tomorrow would be a weekend. Returned as ordinary Notices
+(section="today"/"upcoming" overrides the digest's date-based bucketing)
+rather than a separate board.
+
+Each board is TRAINS_BOARD_SIZE trains nearest the usual time
+(TRAINS_USUAL_MORNING/EVENING), not "next N from now" - it always shows
+the same handful of trains (the usual one plus one either side, given ~30
+min spacing) including any already departed, on purpose: if the usual one
+was late, the one before it is useful context for whether that's a pattern
+today. See _board_around for why "nearest" and not "windowed query".
 
 The RTT API returns and accepts naive local (Europe/London) timestamps, e.g.
 "2026-08-17T18:06:00" with no offset - not UTC. Everything here stays naive
@@ -40,7 +53,7 @@ arrival time/name is Andover's own, kept separate rather than conflated.
 
 import os
 from dataclasses import dataclass
-from datetime import datetime, time, timedelta
+from datetime import date, datetime, time, timedelta
 
 import requests
 
@@ -49,6 +62,16 @@ from .base import Notice
 API_BASE = "https://data.rtt.io"
 
 SOURCE = "trains"
+
+TRAINS_BOARD_SIZE = 3
+# Wide enough that journey-time drift between the anchor (always a
+# departure time, from TRAINS_USUAL_MORNING/EVENING) and an arrival-focus
+# query's own window (bound to the home station's *arrival* time, not the
+# other end's departure) can never push the desired trains outside it -
+# ~70 min Waterloo->Andover journeys mean a naive +/-45min window centered
+# on the departure anchor misses the actual arrivals entirely. See
+# _board_around.
+TRAINS_SEARCH_WINDOW = timedelta(hours=2)
 
 
 @dataclass
@@ -61,7 +84,6 @@ class TrainRow:
     arrival_planned: datetime | None
     arrival_estimate: datetime | None
     platform: str | None
-    operator: str
     is_cancelled: bool
 
 
@@ -119,7 +141,6 @@ def _scheduled(pair: dict) -> datetime | None:
 
 def _parse_row(service: dict, focus: str, home_name: str) -> TrainRow:
     platform = service.get("locationMetadata", {}).get("platform") or {}
-    operator = service["scheduleMetadata"]["operator"]["name"]
     destination_pair = service["destination"][0]
 
     if focus == "departure":
@@ -133,7 +154,6 @@ def _parse_row(service: dict, focus: str, home_name: str) -> TrainRow:
             arrival_planned=_scheduled(destination_pair),
             arrival_estimate=None,
             platform=platform.get("forecast") or platform.get("planned"),
-            operator=operator,
             is_cancelled=bool(home_temporal.get("isCancelled")),
         )
 
@@ -151,28 +171,12 @@ def _parse_row(service: dict, focus: str, home_name: str) -> TrainRow:
         arrival_planned=datetime.fromisoformat(home_temporal["scheduleAdvertised"]),
         arrival_estimate=_live_time(home_temporal),
         platform=platform.get("forecast") or platform.get("planned"),
-        operator=operator,
         is_cancelled=bool(home_temporal.get("isCancelled")),
     )
 
 
 def _sort_key(row: TrainRow, focus: str) -> datetime:
     return row.from_planned if focus == "departure" else row.arrival_planned
-
-
-def _next_trains(
-    access_token: str, home: str, other: str, focus: str, now: datetime, limit: int
-) -> list[TrainRow]:
-    home_name, services = _location_lineup(
-        access_token, home, other, focus, now, now + timedelta(hours=4)
-    )
-    rows = sorted(
-        (_parse_row(s, focus, home_name) for s in services), key=lambda r: _sort_key(r, focus)
-    )
-    # Filter on departure time even in arrival focus - a train that's
-    # already left Waterloo isn't one you can still catch, regardless of
-    # when it's due into Andover.
-    return [r for r in rows if r.from_planned >= now][:limit]
 
 
 def _trains_in_window(
@@ -187,6 +191,31 @@ def _trains_in_window(
     return sorted(
         (_parse_row(s, focus, home_name) for s in services), key=lambda r: _sort_key(r, focus)
     )
+
+
+def _board_around(
+    access_token: str, home: str, other: str, focus: str, anchor: datetime
+) -> list[TrainRow]:
+    """The usual train plus the ones either side of it, by proximity to
+    `anchor` (always a departure time, at whichever end is the outbound
+    origin) - not by the query window itself, since that window is bound to
+    the *queried* station's own event time (Andover's arrival, for the
+    return leg), a different quantity than the anchor. `from_planned` is
+    always the outbound-departure field regardless of focus, so it's what
+    both the anchor and the nearest-neighbour selection compare against."""
+    candidates = _trains_in_window(
+        access_token, home, other, focus, anchor - TRAINS_SEARCH_WINDOW, anchor + TRAINS_SEARCH_WINDOW
+    )
+    nearest = sorted(candidates, key=lambda r: abs((r.from_planned - anchor).total_seconds()))
+    board = nearest[:TRAINS_BOARD_SIZE]
+    board.sort(key=lambda r: _sort_key(r, focus))
+    return board
+
+
+def _next_weekday(d: date) -> date:
+    while d.weekday() >= 5:
+        d += timedelta(days=1)
+    return d
 
 
 def _format_line(row: TrainRow) -> str:
@@ -208,7 +237,7 @@ def _format_line(row: TrainRow) -> str:
 
     platform = f"plat {row.platform}" if row.platform else "plat ?"
 
-    return f"{departs} to {row.board_destination} - {platform} - {arrives} - {row.operator}"
+    return f"{departs} to {row.board_destination}, {platform}, {arrives}"
 
 
 def _watched_status(
@@ -256,6 +285,9 @@ def _watched_status(
 
 
 def alert_status(now: datetime) -> dict[str, dict]:
+    if now.weekday() >= 5:
+        return {}
+
     home = os.environ["RTT_ORIGIN"]
     other = os.environ["RTT_DESTINATION"]
     morning = time.fromisoformat(os.environ["TRAINS_USUAL_MORNING"])
@@ -278,29 +310,27 @@ def alert_status(now: datetime) -> dict[str, dict]:
 
 
 def fetch(now: datetime) -> list[Notice]:
+    if now.weekday() >= 5:
+        return []
+
     home = os.environ["RTT_ORIGIN"]
     other = os.environ["RTT_DESTINATION"]
-    morning_from = time.fromisoformat(os.environ["TRAINS_MORNING_FROM"])
-    morning_to = time.fromisoformat(os.environ["TRAINS_MORNING_TO"])
-    evening_from = time.fromisoformat(os.environ["TRAINS_EVENING_FROM"])
-    evening_to = time.fromisoformat(os.environ["TRAINS_EVENING_TO"])
+    morning = time.fromisoformat(os.environ["TRAINS_USUAL_MORNING"])
+    evening = time.fromisoformat(os.environ["TRAINS_USUAL_EVENING"])
+    cutoff = time.fromisoformat(os.environ["TRAINS_MORNING_CUTOFF"])
 
     access_token = _get_access_token()
     today = now.date()
 
-    if now.hour < 12:
-        today_rows = _next_trains(access_token, home, other, "departure", now, limit=2)
-        window_from = datetime.combine(today, evening_from)
-        window_to = datetime.combine(today, evening_to)
-        preview_rows = _trains_in_window(access_token, home, other, "arrival", window_from, window_to)
+    if now.time() < cutoff:
+        today_rows = _board_around(access_token, home, other, "departure", datetime.combine(today, morning))
+        preview_rows = _board_around(access_token, home, other, "arrival", datetime.combine(today, evening))
         preview_date = today
     else:
-        today_rows = _next_trains(access_token, home, other, "arrival", now, limit=2)
-        tomorrow = today + timedelta(days=1)
-        window_from = datetime.combine(tomorrow, morning_from)
-        window_to = datetime.combine(tomorrow, morning_to)
-        preview_rows = _trains_in_window(access_token, home, other, "departure", window_from, window_to)
-        preview_date = tomorrow
+        today_rows = _board_around(access_token, home, other, "arrival", datetime.combine(today, evening))
+        next_day = _next_weekday(today + timedelta(days=1))
+        preview_rows = _board_around(access_token, home, other, "departure", datetime.combine(next_day, morning))
+        preview_date = next_day
 
     notices = [
         Notice(source=SOURCE, title=_format_line(r), date=today, section="today")

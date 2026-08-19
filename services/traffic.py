@@ -5,8 +5,12 @@ and the Traffic Incidents API for incidents (roadworks, closures, jams,
 accidents, ...) on those routes:
 https://developer.tomtom.com/traffic-api/documentation/tomtom-maps/traffic-incidents/incident-details
 
-Direction flips at noon, same split as trains.py: before 12:00 the routes
-run from Home (to Station / to School), from 12:00 they run back Home.
+Direction flips at noon (independent of trains.py's own cutoff, which
+tracks the usual commute times rather than a fixed hour): before 12:00 the
+routes run from Home (to Station / to School), from 12:00 they run back
+Home. The printed line shows the actual direction (e.g. "Home -> Station");
+alert_status keys stay direction-free ("Station run") so the noon flip
+doesn't spawn a duplicate [new] alert.
 
 Locations are postcode centroids geocoded once via postcodes.io and pinned
 as lat,lon in .env (TRAFFIC_HOME/STATION/SCHOOL) - same resolve-once
@@ -136,35 +140,45 @@ def _incident_line(name: str, props: dict) -> str:
     kind = " & ".join(e["description"].lower() for e in props["events"])
     text = f"{name} incident: {where or kind}"
     if where:
-        text += f" - {kind}"
+        text += f", {kind}"
     delay_s = props.get("delay")
     if delay_s:
         text += f" (+{round(delay_s / 60)} min)"
     return text
 
 
-def _routes(now: datetime) -> list[tuple[str, str, str]]:
+def _routes(now: datetime) -> list[tuple[str, str, str, str]]:
+    """Each entry is (key_name, display_name, start, end). key_name is
+    direction-free ("Station run") and used for alert_status keys, so the
+    noon flip doesn't spawn a new [new] key twice a day - display_name
+    carries the direction (e.g. "Home -> Station") for the printed line."""
     home = os.environ["TRAFFIC_HOME"]
     station = os.environ["TRAFFIC_STATION"]
     school = os.environ["TRAFFIC_SCHOOL"]
 
     if now.hour < 12:
-        return [("Station run", home, station), ("School run", home, school)]
-    return [("Station run", station, home), ("School run", school, home)]
+        return [
+            ("Station run", "Home → Station", home, station),
+            ("School run", "Home → School", home, school),
+        ]
+    return [
+        ("Station run", "Station → Home", station, home),
+        ("School run", "School → Home", school, home),
+    ]
 
 
 def fetch(now: datetime) -> list[Notice]:
     api_key = os.environ["TOMTOM_API_KEY"]
     notices = []
-    for name, start, end in _routes(now):
+    for _, display_name, start, end in _routes(now):
         route = _calculate_route(api_key, start, end)
         notices.append(
-            Notice(source=SOURCE, title=_line(name, route["summary"]), date=now.date())
+            Notice(source=SOURCE, title=_line(display_name, route["summary"]), date=now.date())
         )
         on_route_event_ids = _on_route_event_ids(route)
         for props in _incidents(api_key, route["legs"][0]["points"], on_route_event_ids):
             notices.append(
-                Notice(source=SOURCE, title=_incident_line(name, props), date=now.date())
+                Notice(source=SOURCE, title=_incident_line(display_name, props), date=now.date())
             )
     return notices
 
@@ -181,12 +195,12 @@ def alert_status(now: datetime) -> dict[str, dict]:
     threshold_min = int(os.environ["TRAFFIC_DELAY_ALERT_MIN"])
 
     statuses = {}
-    for name, start, end in _routes(now):
+    for key_name, display_name, start, end in _routes(now):
         summary_data = _route_summary(api_key, start, end)
         delay_min = round(summary_data.get("trafficDelayInSeconds", 0) / 60)
         status = "clear" if delay_min < threshold_min else f"+{delay_min} min"
-        statuses[f"{SOURCE}:{name}"] = {
+        statuses[f"{SOURCE}:{key_name}"] = {
             "status": status,
-            "summary": _line(name, summary_data),
+            "summary": _line(display_name, summary_data),
         }
     return statuses

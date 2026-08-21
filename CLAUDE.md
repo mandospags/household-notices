@@ -114,7 +114,23 @@ Working Phase 1 digest with nine sources:
   to diff for `alert_status()`. Reuses `TRAFFIC_HOME`'s geocoded point
   rather than a new coordinate var.
 - `services/air_quality.py` — DEFRA DAQI forecast RSS.
-- `services/weather.py` — Met Office severe weather warnings RSS.
+- `services/weather.py` — Met Office severe weather warnings, via the NSWWS
+  Public API (separate DataHub subscription/key from forecast.py's BPF
+  product). Replaced an earlier per-region RSS version — this filters by
+  county (`WEATHER_HOME_COUNTY`, exact match against a warning's
+  `affectedAreas[].subRegions`) rather than the old blunt 16-region split,
+  and uses the feed's own `warningLevel` (YELLOW/AMBER/RED) as
+  `alert_status()`'s categorical status instead of diffing raw text. Two
+  fetches per call, always, no shortcut: `/objects/feed` (Atom) to discover
+  the current issued-warnings snapshot's URL (its UUID rotates every time
+  the warning list changes), then that URL for the GeoJSON snapshot itself.
+  Drops anything not `warningStatus == "ISSUED"` or already past
+  `validToDate`; `fetch()` clamps a warning's `validFromDate` to today if
+  it's already started, so a still-active multi-day warning doesn't age out
+  of the digest the way the old RSS version's `pubDate`-based dating could.
+  No live UK warning has ever been active since either version was built —
+  parsing was verified against a real multi-warning sample the Met Office
+  provided directly (Storm Éowyn, Jan 2025), not a live response.
 - `services/trains.py` — Realtime Trains commute rows (Andover ⇄ Waterloo),
   weekdays only, and skips bank holidays too (see bank_holidays.py above).
   Each digest board is the usual commute train
@@ -227,7 +243,7 @@ knowing about any time, like a power cut.
 `HOME_POSTCODE` is the shared postcode config — reuse it rather than adding
 a new per-source postcode var. It is not a full "one var updates
 everything if we move" story though: several other configs (`TVBC_UPRN`,
-`DAQI_STATION`, `METOFFICE_REGION`, `RTT_ORIGIN`, `TRAFFIC_HOME/STATION/
+`DAQI_STATION`, `WEATHER_HOME_COUNTY`, `RTT_ORIGIN`, `TRAFFIC_HOME/STATION/
 SCHOOL`) are derived from location but require a manual re-derivation step
 on a move — see the checklist at the bottom of `.env.example`.
 

@@ -13,6 +13,7 @@ _SOURCE_EMOJI = {
     "traffic": "🚗",
     "bank_holidays": "🎉",
     "forecast": "⛅",
+    "weather": "⚠️",
 }
 
 

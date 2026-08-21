@@ -1,25 +1,66 @@
-"""Met Office severe weather warnings, from the public per-region RSS feed
-(no API key/auth needed):
-https://www.metoffice.gov.uk/public/data/PWSCache/WarningsRSS/Region/<code>
+"""Met Office severe weather warnings, via the National Severe Weather
+Warning Service (NSWWS) Public API on DataHub (a separate subscription from
+forecast.py's BPF product, its own key, NSWWS_API_KEY). Replaces an earlier
+RSS-based version - see git history - that only had per-region granularity
+and no structured severity/validity fields to work with.
 
-Warnings are regional (16 fixed UK regions), not postcode-specific - the
-region code for the target area is set via METOFFICE_REGION.
-
-At the time this was written every region's feed was empty (no active UK
-warnings), so the shape of a populated <item> couldn't be observed directly.
-Only title/description/pubDate are guaranteed by RSS 2.0 itself, so that's
-all this parses - no assumed severity/valid-from/valid-to fields. A warning's
-validity window (if any) ends up as free text inside title/description,
-surfaced via detail rather than parsed into structured dates. Each item is
-dated by its pubDate (when issued/updated), so a warning that's still valid
-several days out won't itself re-appear in "upcoming" once its pubDate ages
-past that window - worth revisiting once we've actually seen a live one.
+API shape (confirmed live against the real endpoints, though never against a
+populated feed - see below):
+- Base `https://data.hub.api.metoffice.gov.uk/nswws/v1.1`, auth via `apikey`
+  header (confirmed by trial - the docs describe the header name as
+  `x-api-key`/`ApiKey` inconsistently, but HTTP header names are
+  case-insensitive and the gateway only actually accepts `apikey`/`ApiKey`,
+  not `x-api-key`).
+- Two-hop fetch, every call, no shortcut: `GET /objects/feed` returns a small
+  Atom document whose `<link rel="related">` href points at the *current*
+  full GeoJSON snapshot of all issued warnings - that href's UUID rotates
+  every time the warning list changes, so it must be re-discovered from the
+  feed on every fetch, per the API's own docs (a stale/cached "issued" URL
+  just keeps serving the same snapshot, it doesn't 404, so there's no cheap
+  way to detect staleness other than always re-fetching the feed first).
+- The GeoJSON snapshot's `properties` per warning (real shape, from a Met
+  Office-supplied sample - see below) includes `warningId`, `weatherType`
+  (list, e.g. ["WIND"]), `validFromDate`/`validToDate` (ISO UTC),
+  `warningLevel` (YELLOW/AMBER/RED), `warningStatus` (e.g. "ISSUED"),
+  `warningHeadline`, and `affectedAreas` - a list of
+  `{regionName, regionCode, subRegions: [county names]}`. `geometry` is a
+  MultiPolygon and is ignored entirely - not needed for a postcode-scale
+  match.
+- Filters to warnings whose `affectedAreas[].subRegions` contains
+  WEATHER_HOME_COUNTY (exact string match, e.g. "Hampshire" - county-level,
+  a real improvement over the old RSS's whole-region granularity, e.g. a
+  Kent-only warning no longer shows up just because Kent shares the SE
+  region with Hampshire).
+- Also drops anything with `validToDate` in the past (a warning that's
+  merely still sitting in the snapshot after its window closed) and
+  anything whose `warningStatus != "ISSUED"` - the feed is documented to
+  carry issued/updated/cancelled/expired warnings, but every field here
+  (including whether a cancelled warning even stays in the snapshot, and
+  under what status) is unconfirmed against a live warning: at the time
+  this was written the live snapshot was empty (no active UK warnings) -
+  same "never observed live" caveat the RSS version carried. Parsing was
+  built and tested against a real multi-warning sample the Met Office
+  provided directly (Storm Eowyn, Jan 2025), trimmed into a fixture and
+  exercised in place of a live populated response.
+- `validFromDate` is clamped to `now`'s Europe/London date if the window has
+  already started (`max(valid_from_local_date, today)`) - using the raw
+  start date would put a currently-active multi-day warning that started
+  yesterday into a date digest.py's bucketing already drops as "in the
+  past", making it vanish from the digest mid-warning. This mirrors why the
+  old RSS version's pubDate-based dating was flagged as a bug in the first
+  place.
+- No cache - the API's rate limit (spike-arrest ~100 req/sec per the token's
+  tier info) is far more generous than forecast.py's 55/day, so a plain
+  fetch on every digest/alert run is fine.
+- ACTIVE_HOURS unchanged from the RSS version (daytime-only) - whether a RED
+  warning deserves overnight paging is a real question but a separate one
+  from this source swap, not decided here.
 """
 
 import os
-from datetime import datetime
-from email.utils import parsedate_to_datetime
+from datetime import date, datetime
 from xml.etree import ElementTree
+from zoneinfo import ZoneInfo
 
 import requests
 
@@ -28,43 +69,81 @@ from .base import Notice
 SOURCE = "weather"
 ACTIVE_HOURS = (6, 20)  # daytime only - see alerts.py's ACTIVE_HOURS gate
 
-FEED_URL_TEMPLATE = "https://www.metoffice.gov.uk/public/data/PWSCache/WarningsRSS/Region/{region}"
+API_BASE = "https://data.hub.api.metoffice.gov.uk/nswws/v1.1"
+FEED_URL = f"{API_BASE}/objects/feed"
+ATOM_NS = {"atom": "http://www.w3.org/2005/Atom"}
+LONDON = ZoneInfo("Europe/London")
+
+
+def _headers() -> dict:
+    return {"apikey": os.environ["NSWWS_API_KEY"]}
+
+
+def _current_warnings() -> list[dict]:
+    feed_resp = requests.get(FEED_URL, headers=_headers(), timeout=15)
+    feed_resp.raise_for_status()
+    root = ElementTree.fromstring(feed_resp.content)
+
+    related = root.find("atom:link[@rel='related']", ATOM_NS)
+    if related is None:
+        raise ValueError("NSWWS feed has no rel='related' link to the issued-warnings snapshot")
+
+    issued_resp = requests.get(related.get("href"), headers=_headers(), timeout=15)
+    issued_resp.raise_for_status()
+    return issued_resp.json()["features"]
+
+
+def _local_date(iso_utc: str) -> date:
+    return datetime.fromisoformat(iso_utc.replace("Z", "+00:00")).astimezone(LONDON).date()
+
+
+def _matches_county(warning: dict, county: str) -> bool:
+    return any(
+        county in area.get("subRegions", []) for area in warning.get("affectedAreas", [])
+    )
+
+
+def _relevant_warnings(now: datetime, county: str) -> list[dict]:
+    today = now.date()
+    warnings = []
+    for feature in _current_warnings():
+        props = feature["properties"]
+        if props.get("warningStatus") != "ISSUED":
+            continue
+        if _local_date(props["validToDate"]) < today:
+            continue
+        if not _matches_county(props, county):
+            continue
+        warnings.append(props)
+    return warnings
+
+
+def _summary(props: dict) -> str:
+    weather_types = "/".join(props.get("weatherType", []))
+    return f"{props['warningLevel']} {weather_types} warning: {props['warningHeadline']}"
 
 
 def alert_status(now: datetime) -> dict[str, dict]:
-    """Warnings as alert subjects: keyed by title, status is the description
-    - so a new warning alerts as new, and an updated description re-alerts.
-    Shape is a best guess until a live warning has actually been observed."""
+    county = os.environ["WEATHER_HOME_COUNTY"]
     statuses = {}
-    for notice in fetch(now):
-        key = f"{SOURCE}:{notice.title}"
-        summary = f"Weather warning: {notice.title}"
-        if notice.detail:
-            summary += f" - {notice.detail}"
-        statuses[key] = {"status": notice.detail or "", "summary": summary}
+    for props in _relevant_warnings(now, county):
+        key = f"{SOURCE}:{props['warningId']}"
+        statuses[key] = {"status": props["warningLevel"], "summary": _summary(props)}
     return statuses
 
 
 def fetch(now: datetime) -> list[Notice]:
-    region = os.environ["METOFFICE_REGION"]
-
-    resp = requests.get(FEED_URL_TEMPLATE.format(region=region), timeout=15)
-    resp.raise_for_status()
-    root = ElementTree.fromstring(resp.content)
-
+    county = os.environ["WEATHER_HOME_COUNTY"]
+    today = now.date()
     notices = []
-    for item in root.iter("item"):
-        title = (item.findtext("title") or "").strip()
-        description = (item.findtext("description") or "").strip()
-        pub_date_text = item.findtext("pubDate")
-        issued = parsedate_to_datetime(pub_date_text).date() if pub_date_text else None
-
+    for props in _relevant_warnings(now, county):
+        valid_from = _local_date(props["validFromDate"])
         notices.append(
             Notice(
                 source=SOURCE,
-                title=title or "Weather warning",
-                date=issued,
-                detail=description or None,
+                title=props["warningHeadline"],
+                date=max(valid_from, today),
+                detail=f"{props['warningLevel']} {'/'.join(props.get('weatherType', []))}",
             )
         )
     return notices

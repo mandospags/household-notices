@@ -89,6 +89,13 @@ Working Phase 1 digest with seven sources:
   scheduled time, unlike the boards' nearest-match tolerance; its status is
   categorical (`on time`/`late`/`CANCELLED` + platform, no minutes) so
   alerts.py fires once per transition, not on every live-estimate wobble.
+  The watch also layers in National Rail's own Live Departure Boards
+  (LDBWS, `LDBWS_API_KEY` from raildata.org.uk) once a watched departure is
+  within LDBWS's confirmed-live ~120min lookahead — worse-status-wins
+  against RTT's category (never a downgrade), added after RTT's app lagged
+  a station board showing a real cancellation on 2026-08-20. LDBWS can't
+  replace RTT for the boards themselves (no schedule-query support, only
+  "what's coming up now").
 - `services/traffic.py` — TomTom live traffic for the Station run and
   School run (direction flips at noon: Home→Station/School before, back
   Home after; the printed line shows the actual direction, e.g.

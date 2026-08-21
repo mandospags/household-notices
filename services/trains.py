@@ -29,12 +29,22 @@ The RTT API returns and accepts naive local (Europe/London) timestamps, e.g.
 and is compared/formatted as local time throughout; do not introduce
 timezone-aware datetimes into this module.
 
-Querying direction matters: /rtt/location only gives *live* times for the
-station you queried - so we always query *at Andover* (our home station):
-filterTo for the outbound leg (Andover's own live departure + destination's
-planned arrival) and filterFrom for the return leg (Andover's own live
-arrival + origin's planned departure). That keeps every "home end" time
-live for one call, with no need for a second /rtt/service lookup.
+Querying direction matters: /rtt/location only gives *live* times (and
+platform) for the station you queried - the other end's `origin`/
+`destination` entries carry only a scheduled time, confirmed live to have
+no locationMetadata/platform at all. The morning board queries *at
+Andover* (filterTo Waterloo) since that's also where you board, so one
+call gives everything useful. The evening board's "home end" is Andover's
+*arrival*, not where you board - an early version queried only that one
+call (Andover, filterFrom Waterloo) for both the arrival time and,
+mistakenly, the platform/live-departure-delay too, which surfaced
+Andover's arrival platform in a slot meant to answer "which platform do I
+board at Waterloo" (a real, reported mismatch - Waterloo's actual
+platform is a different number to Andover's). `_board_around` now issues a
+second, departure-focus query at Waterloo for the same window and merges
+its real platform/live-estimate into the arrival-focus rows, matched by
+scheduled departure time - the extra call is worth it since a wrong
+boarding platform is actively misleading, not just imprecise.
 
 alert_status() (for alerts.py) watches the two *usual* commute trains
 (TRAINS_USUAL_MORNING from home, TRAINS_USUAL_EVENING back) rather than
@@ -43,6 +53,42 @@ queried at their departing station so the live time and platform are the
 departure's own (evening platform = Waterloo's, which is the useful one).
 Keyed by scheduleMetadata.uniqueIdentity (schedule identity + departure
 date), so keys roll over naturally each day.
+
+Layered on top of RTT, once a watched departure is within
+LDBWS_LOOKAHEAD_MIN: National Rail's own Live Departure Boards (LDBWS,
+`api1.raildata.org.uk`, `LDBWS_API_KEY` from raildata.org.uk - the old
+self-service realtime.nationalrail.co.uk token portal was retired in
+2026). Motivated by a real miss on 2026-08-20: the station board showed a
+service CANCELLED before RTT's own app reflected it - LDBWS is the direct
+Darwin-backed feed boards are built from, RTT is a third party sitting on
+top of it, so it's plausible for RTT to lag. `GetDepartureBoard` is a live
+"what's coming up now" view, not a schedule query - confirmed live it has
+a fixed ~120min lookahead (tested up to a 600min `timeWindow` param with no
+effect), so it cannot replace RTT for fetch()'s multi-day board-building,
+only supplement the same-day watch once a departure is close. Same CRS
+codes as RTT_ORIGIN/RTT_DESTINATION (confirmed "ADV"/"WAT" match exactly),
+so no new location config needed. Worse-status-wins: LDBWS's own category (derived the same coarse way as
+RTT's - CANCELLED, or late if its `etd` implies a delay past
+TRAINS_DELAY_ALERT_MIN, else on time) is compared against RTT's, and the
+worse of the two is kept - never a downgrade (RTT already saying "late"
+stays "late" even if LDBWS's `etd` briefly reads "On time"). The whole
+point of adding this second source is that it can reflect reality before
+RTT does, and that applies to delays exactly as much as cancellations, so
+both escalate. LDBWS's free-text `delayReason` (e.g. "delayed by
+trespassers on the railway" - richer than anything RTT exposes) is
+appended to the summary whenever present, regardless of category, since
+summary isn't diffed. Platform stays RTT's throughout - not worth two
+sources fighting over half of the status string. A failed/empty LDBWS
+lookup is swallowed rather than raised, since it's a best-effort layer on
+top of the primary RTT-based status, not a required source (unlike a
+genuine fetch()/alert_status() failure, which is still expected to raise
+per the module contract).
+
+LDBWS also returns a `length` field (coach count) - confirmed live, e.g.
+"4" on an actual service - relevant to the separate short-formation/
+standing-room question raised earlier, but `length: 0` appears to mean
+"not yet known" rather than "zero coaches" (unconfirmed how early it
+populates), so that's tracked as a SPEC.md backlog item, not built here.
 
 On the return leg, Andover is a mid-route stop, not the schedule's final
 destination (many of these continue to Salisbury, Yeovil Junction, etc) -
@@ -60,9 +106,13 @@ import requests
 from .base import Notice
 
 API_BASE = "https://data.rtt.io"
+LDBWS_BASE = "https://api1.raildata.org.uk/1010-live-departure-board-dep1_2/LDBWS/api/20220120"
 
 SOURCE = "trains"
 ACTIVE_HOURS = (6, 20)  # daytime only - see alerts.py's ACTIVE_HOURS gate
+
+# GetDepartureBoard's confirmed-live fixed lookahead - see module docstring.
+LDBWS_LOOKAHEAD = timedelta(minutes=120)
 
 TRAINS_BOARD_SIZE = 3
 # Wide enough that journey-time drift between the anchor (always a
@@ -210,6 +260,35 @@ def _board_around(
     nearest = sorted(candidates, key=lambda r: abs((r.from_planned - anchor).total_seconds()))
     board = nearest[:TRAINS_BOARD_SIZE]
     board.sort(key=lambda r: _sort_key(r, focus))
+
+    if focus == "arrival":
+        # An arrival-focus query (`other`, i.e. wherever you actually board)
+        # is queried at `home`, and RTT's /rtt/location only returns live
+        # data (platform, delay) for the *queried* station - confirmed live
+        # that the `origin` entry it returns for the other end carries only
+        # a scheduled time, nothing else. So `row.platform`/`from_estimate`
+        # from the arrival-focus parse above are Andover's own arrival
+        # platform/(always None) - not useful (you don't board at the
+        # arrival end) and not even live for the departure. Fetch a second,
+        # departure-focus board queried at `other` (the boarding station)
+        # for the same window, and overwrite platform/from_estimate with
+        # its real, live values - matched by scheduled departure time
+        # (exact, same service). Leaves a row's Andover-side fields
+        # (arrival_planned/arrival_estimate/arrival_name) untouched - those
+        # are still correctly Andover's own and still useful ("when do I
+        # get home").
+        boarding = {
+            row.from_planned: row
+            for row in _trains_in_window(
+                access_token, other, home, "departure", anchor - TRAINS_SEARCH_WINDOW, anchor + TRAINS_SEARCH_WINDOW
+            )
+        }
+        for row in board:
+            live = boarding.get(row.from_planned)
+            if live is not None:
+                row.platform = live.platform
+                row.from_estimate = live.from_estimate
+
     return board
 
 
@@ -220,12 +299,17 @@ def _next_weekday(d: date) -> date:
 
 
 def _format_line(row: TrainRow) -> str:
-    if row.is_cancelled:
-        return f"{row.from_planned:%H:%M} to {row.board_destination}: CANCELLED"
-
+    # Ordered as "where to go and what to look for" (departure time,
+    # station, platform, destination) first, "when you get there" second -
+    # the departure half is the actionable part, so it leads.
     departs = f"{row.from_planned:%H:%M}"
     if row.from_estimate and row.from_estimate != row.from_planned:
         departs += f" (exp {row.from_estimate:%H:%M})"
+    platform = f"plat {row.platform}" if row.platform else "plat ?"
+    header = f"{departs} {row.from_name} {platform} to {row.board_destination}"
+
+    if row.is_cancelled:
+        return f"{header}: CANCELLED"
 
     if row.arrival_planned is None:
         arrives = "arr unknown"
@@ -236,13 +320,71 @@ def _format_line(row: TrainRow) -> str:
         if row.arrival_estimate and row.arrival_estimate != row.arrival_planned:
             arrives += f" (exp {row.arrival_estimate:%H:%M})"
 
-    platform = f"plat {row.platform}" if row.platform else "plat ?"
+    return f"{header}, {arrives}"
 
-    return f"{departs} to {row.board_destination}, {platform}, {arrives}"
+
+_CATEGORY_RANK = {"on time": 0, "late": 1, "CANCELLED": 2}
+
+
+def _ldbws_entry(depart: str, dest: str, planned: datetime) -> dict | None:
+    """The LDBWS board is a live "what's coming up" view with a fixed
+    ~120min lookahead (see module docstring), not a schedule query - so a
+    planned departure outside that window simply won't be present, and
+    that's expected/normal, not a failure to raise on."""
+    resp = requests.get(
+        f"{LDBWS_BASE}/GetDepartureBoard/{depart}",
+        headers={
+            "x-apikey": os.environ["LDBWS_API_KEY"],
+            # Bare/default requests UA gets a 403 (Cloudflare bot-block) -
+            # same gotcha as mass.py/powercuts.py, same fix.
+            "User-Agent": (
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+                "(KHTML, like Gecko) Chrome/124.0 Safari/537.36"
+            ),
+        },
+        params={"filterCrs": dest, "filterType": "to"},
+        timeout=15,
+    )
+    resp.raise_for_status()
+    for svc in resp.json().get("trainServices") or []:
+        if svc["std"] == f"{planned:%H:%M}":
+            return svc
+    return None
+
+
+def _ldbws_category(
+    entry: dict, planned: datetime, threshold_min: int
+) -> tuple[str, str | None] | None:
+    """Derive the same coarse category RTT's own logic uses, from LDBWS's
+    fields, so the two are comparable for worse-status-wins in
+    _watched_status. Returns None for an `etd` value that isn't one of
+    Darwin's known forms ("On time" / "Delayed" / an HH:MM estimate) -
+    deliberately not escalating on a string we haven't seen and don't
+    understand, rather than guessing."""
+    if entry.get("isCancelled"):
+        return "CANCELLED", None
+    etd = entry.get("etd")
+    if etd == "On time":
+        return "on time", None
+    if etd == "Delayed":
+        return "late", None
+    try:
+        estimate = datetime.combine(planned.date(), time.fromisoformat(etd))
+    except (TypeError, ValueError):
+        return None
+    delay_min = int((estimate - planned).total_seconds() // 60)
+    if delay_min >= threshold_min:
+        return "late", f"exp {estimate:%H:%M} (+{delay_min}m) via LDBWS"
+    return "on time", None
 
 
 def _watched_status(
-    access_token: str, depart: str, dest: str, planned: datetime, threshold_min: int
+    access_token: str,
+    depart: str,
+    dest: str,
+    planned: datetime,
+    threshold_min: int,
+    now: datetime,
 ) -> tuple[str, dict]:
     """Status of the one scheduled service departing `depart` for `dest` at
     `planned` - queried at the departing station (unlike fetch(), which always
@@ -274,6 +416,26 @@ def _watched_status(
             else:
                 category = "on time"
                 detail = "on time"
+
+        # Once within LDBWS's lookahead, let it escalate (never downgrade)
+        # the RTT-derived category - see module docstring for why. A failed
+        # or empty lookup just means "no second opinion available", not an
+        # error.
+        reason = None
+        if timedelta(0) <= planned - now <= LDBWS_LOOKAHEAD:
+            try:
+                entry = _ldbws_entry(depart, dest, planned)
+            except Exception:
+                entry = None
+            if entry is not None:
+                reason = entry.get("delayReason")
+                ldbws_result = _ldbws_category(entry, planned, threshold_min)
+                if ldbws_result is not None:
+                    ldbws_category, ldbws_detail = ldbws_result
+                    if _CATEGORY_RANK[ldbws_category] > _CATEGORY_RANK[category]:
+                        category = ldbws_category
+                        detail = ldbws_detail or ldbws_category
+
         # status is deliberately coarse (category + platform, no minutes) so
         # alerts.py's diff fires once per category/platform change, not on
         # every minute of live-estimate wobble while a train stays late -
@@ -282,7 +444,9 @@ def _watched_status(
         # uniqueIdentity is e.g. "gb-nr:L79428:2026-08-18" - schedule identity
         # plus departure date, so keys roll over naturally each day.
         key = f"{SOURCE}:{svc['scheduleMetadata']['uniqueIdentity']}"
-        summary = f"{planned:%H:%M} {home_name} to {row.board_destination}: {detail}, plat {row.platform or '?'}"
+        summary = f"{planned:%H:%M} {home_name} plat {row.platform or '?'} to {row.board_destination}: {detail}"
+        if reason:
+            summary += f" - {reason}"
         return key, {"status": status, "summary": summary}
 
     # The usual train not being in the timetable at all is itself an alert
@@ -311,7 +475,7 @@ def alert_status(now: datetime) -> dict[str, dict]:
         (other, home, evening),
     ):
         key, entry = _watched_status(
-            access_token, depart, dest, datetime.combine(today, planned_time), threshold_min
+            access_token, depart, dest, datetime.combine(today, planned_time), threshold_min, now
         )
         statuses[key] = entry
     return statuses

@@ -149,6 +149,28 @@ built. Everything else in this doc is frozen original intent.)
   postcode-lookup endpoint (network-inspect it first to see if it's backed
   by an undocumented JSON call) — weakest-feasibility candidate here,
   closer to mass.py's scrape situation than to flood-monitoring's clean API.
+- General Waterloo–Salisbury (West of England) line status watch, broader
+  than trains.py's current commute-only alert_status() (which only ever
+  watches the two usual ADV/WAT departures, matched by exact scheduled
+  time — a cancellation on any other service on the line, e.g. a
+  Waterloo→Yeovil Pen Mill working, currently produces no alert at all).
+  Would need RTT's line/area-level query rather than the two-train watch,
+  and a different notion of "key" since there's no fixed pair of services
+  to anchor on. Not started — flagged after a real 2026-08-20 cancellation
+  (person hit by a train, Waterloo–Salisbury) that this repo correctly
+  didn't alert on since neither watched commute train was affected.
+- Short-formation (fewer coaches than usual) alert. Turns out **RTT already
+  has this** - confirmed live, `locationMetadata.numberOfVehicles` on the
+  same `/rtt/location` response `_watched_status()` already queries every
+  poll (e.g. 9 on the morning train, 8 on the evening one, right now) - no
+  LDBWS needed, and no extra API call either. (LDBWS's own `GetDepartureBoard`
+  `length` field is a real alternative if RTT's ever proves unreliable, but
+  `length: 0` there seems to mean "not yet known" rather than "zero
+  coaches," unconfirmed.) Likely a small addition to `_watched_status()`'s
+  categorical status (e.g. a "short" category when vehicles < some usual
+  count, configurable per watched train since morning/evening formations
+  differ) - motivated by a real 3-coach-instead-of-8 standing-room commute
+  on 2026-08-19. Not started - propose the approach before building.
 
 Deferred trains ideas (waiting on real commute experience — don't implement
 unprompted): scheduled digest runs (e.g. 3pm/4pm); anchoring on usual

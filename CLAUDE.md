@@ -31,7 +31,7 @@ code changes were needed for this repo to become schedulable.
 
 ## Current state
 
-Working Phase 1 digest with eight sources:
+Working Phase 1 digest with nine sources:
 
 - `digest.py` — daily-digest entry point. Loads `.env`, calls each
   service's `fetch(now)`, buckets notices into "today"/"upcoming", also
@@ -98,6 +98,21 @@ Working Phase 1 digest with eight sources:
   the same way it already skips weekends — fails open (`False`) if the
   check itself can't be answered, so an unrelated feed hiccup never breaks
   the trains watch.
+- `services/forecast.py` — daily temp range + rain chance ("what to wear/
+  bring"), Met Office Site-Specific Blended Probabilistic Forecast (BPF), a
+  separate subscription from `weather.py`'s severe-warnings feed. Two
+  digest lines: today (absolute "cold"/"warm"/"wet"/"dry" thresholds) and
+  tomorrow (compared against today — "warmer and drier than today"). The
+  API has no plain max/min/rain% fields — temperature comes back as 15
+  percentile bands (uses the 50th/median) and rain as a probability per
+  rainfall threshold (uses the ~0.25mm band, closest to the usual
+  "measurable rain" cutoff — the `>0.0` "any trace" band badly over-reads).
+  Both are 3-hourly series bucketed into calendar days client-side (by
+  Europe/London date, not raw UTC). Cached like mass.py (~1hr TTL) to stay
+  well under the free tier's 55 calls/day. Digest-only — a forecast drifts
+  rather than flipping between discrete states, so there's nothing clean
+  to diff for `alert_status()`. Reuses `TRAFFIC_HOME`'s geocoded point
+  rather than a new coordinate var.
 - `services/air_quality.py` — DEFRA DAQI forecast RSS.
 - `services/weather.py` — Met Office severe weather warnings RSS.
 - `services/trains.py` — Realtime Trains commute rows (Andover ⇄ Waterloo),

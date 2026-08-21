@@ -124,9 +124,6 @@ to persistent storage later.
 built. Everything else in this doc is frozen original intent.)
 
 - Road closures/roadworks — DfT Street Manager open data (real API).
-- Met Office day-to-day forecast (DataHub, separate from the warnings feed
-  already built) — would fill the "baseline weather summary" requirement,
-  currently uncovered.
 - Test Valley planning applications — HTML scrape, no known API.
 - St Michael's School, Burghclere — upcoming events.
 - 1962 Ordo / today's liturgical calendar day.

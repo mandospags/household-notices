@@ -22,3 +22,9 @@ class Notice:
     # are date-stamped for display but belong in a specific section
     # regardless of what that date compares to.
     section: str | None = None
+    # Per-notice emoji override, for a source whose Notices don't all share
+    # one icon (only bins.py needs this - its four collection types share
+    # SOURCE="bins", so render.py's source->emoji lookup can't tell them
+    # apart; bins.py sets this directly instead). Everything else leaves it
+    # unset and gets its icon from render.py's source-keyed lookup.
+    emoji: str | None = None

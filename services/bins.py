@@ -20,6 +20,16 @@ from .base import Notice
 
 SOURCE = "bins"
 
+# Collection-type emoji, kept in this module rather than a source->emoji
+# lookup in render.py since all four collection types share SOURCE="bins" -
+# only bins.py itself knows which type a given Notice is at creation time.
+BIN_EMOJI = {
+    "Household Waste": "⬛",
+    "Recycling": "🟫",
+    "Garden Waste": "🟩",
+    "Food Waste": "▪️",
+}
+
 API_URL = "https://iweb.itouchvision.com/portal/itouchvision/"
 AES_KEY = bytes.fromhex(
     "F57E76482EE3DC3336495DEDEEF3962671B054FE353E815145E29C5689F72FEC"
@@ -82,6 +92,7 @@ def fetch(now: datetime) -> list[Notice]:
                 source=SOURCE,
                 title=f"{item['binType']} collection",
                 date=collection_date,
+                emoji=BIN_EMOJI.get(item["binType"]),
             )
         )
     return notices

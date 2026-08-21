@@ -60,7 +60,18 @@ Working Phase 1 digest with seven sources:
   overnight run doesn't erase yesterday's daytime status and cause a bogus
   `[new]` when it wakes up.
 - `render.py` — builds the plain-text digest as a string (`digest.py`
-  prints it and also sends it via `telegram.py`).
+  prints it and also sends it via `telegram.py`). No bullet characters (`-`)
+  in front of lines — they didn't render as bullets in Telegram anyway,
+  just added noise. Every Today/Upcoming line leads with an emoji: a
+  `source -> emoji` table (`_SOURCE_EMOJI`) covers sources with one icon;
+  `traffic` is the one source with two (travel-time vs incident lines,
+  split on `" incident:"` in the title, since both share `SOURCE="traffic"`)
+  handled as a special case rather than a second table entry; `bins` sets
+  `Notice.emoji` directly per-collection-type instead of going through
+  either table, since all four bin types share `SOURCE="bins"` and only
+  bins.py itself knows which type a given Notice is. An empty Alerts
+  section is omitted entirely (no heading, no "No active alerts." filler)
+  rather than printed every run.
 - `telegram.py` — send-only delivery to the shared "Home" Telegram bot
   (`TELEGRAM_BOT_TOKEN`/`TELEGRAM_CHAT_ID`, same token as sibling repo
   `homelab-mcp`, provisioned there — this repo only ever calls
@@ -72,8 +83,14 @@ Working Phase 1 digest with seven sources:
   simple, add one if that becomes a problem).
 - `services/base.py` — the `Notice` dataclass (the whole inter-module
   contract) and `is_notable(status)`, the nominal/notable line shared by
-  digest.py's Alerts block and alerts.py's new-key suppression.
-- `services/bins.py` — Test Valley bin collections (iTouchVision API).
+  digest.py's Alerts block and alerts.py's new-key suppression. `Notice.emoji`
+  is an optional per-notice override for render.py's display icon, used only
+  by bins.py (see below) — everything else leaves it unset and gets its icon
+  from render.py's source-keyed lookup instead.
+- `services/bins.py` — Test Valley bin collections (iTouchVision API). Each
+  Notice sets `emoji` per collection type (`BIN_EMOJI`: ⬛ household, 🟫
+  recycling, 🟩 garden, ▪️ food) since all four types share `SOURCE="bins"`,
+  so render.py's source-keyed lookup can't tell them apart on its own.
 - `services/air_quality.py` — DEFRA DAQI forecast RSS.
 - `services/weather.py` — Met Office severe weather warnings RSS.
 - `services/trains.py` — Realtime Trains commute rows (Andover ⇄ Waterloo),

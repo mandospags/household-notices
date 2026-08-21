@@ -137,12 +137,6 @@ built. Everything else in this doc is frozen original intent.)
   warning/warning/alert/no-longer-in-force), so `alert_status` is close to
   free. Best-fit candidate of this batch — closest to a drop-in `fetch()` +
   `alert_status()`.
-- UK bank holidays — `www.gov.uk/bank-holidays.json` (or
-  `/england-and-wales.json`), keyless, trivial JSON (`events: [{title,
-  date, notes, bunting}]`). Lowest effort in this list; digest-only, no
-  `alert_status` (holidays aren't sudden). Also useful as context data for
-  other services (e.g. bins/trains on a bank holiday), not just its own
-  notice.
 - Southern Water supply interruptions — only a customer-facing "enter your
   postcode" web page found (`southernwater.co.uk/works-or-issues-in-my-area`);
   no documented API turned up. Would likely mean scraping that page's

@@ -4,8 +4,11 @@ https://api-portal.rtt.io - free tier, bearer auth. A long-life refresh
 token (RTT_REFRESH_TOKEN) is exchanged for a short-life access token via
 /api/get_access_token on every run.
 
-Weekdays only - fetch() and alert_status() both return empty (no commute
-to watch) on Saturday/Sunday.
+Weekdays only, and skips bank holidays too (via bank_holidays.is_bank_holiday,
+fails open to False if that check itself can't be answered) - fetch() and
+alert_status() both return empty (no commute to watch), and the tomorrow-
+preview board (_next_commute_day) skips a holiday Monday the same way it
+already skips weekends.
 
 Split at TRAINS_MORNING_CUTOFF (not noon - "the latest I'd still
 count as arriving today"): before the cutoff, "today" is a fixed board of
@@ -103,6 +106,7 @@ from datetime import date, datetime, time, timedelta
 
 import requests
 
+from . import bank_holidays
 from .base import Notice
 
 API_BASE = "https://data.rtt.io"
@@ -292,8 +296,8 @@ def _board_around(
     return board
 
 
-def _next_weekday(d: date) -> date:
-    while d.weekday() >= 5:
+def _next_commute_day(d: date) -> date:
+    while d.weekday() >= 5 or bank_holidays.is_bank_holiday(d):
         d += timedelta(days=1)
     return d
 
@@ -457,7 +461,7 @@ def _watched_status(
 
 
 def alert_status(now: datetime) -> dict[str, dict]:
-    if now.weekday() >= 5:
+    if now.weekday() >= 5 or bank_holidays.is_bank_holiday(now.date()):
         return {}
 
     home = os.environ["RTT_ORIGIN"]
@@ -482,7 +486,7 @@ def alert_status(now: datetime) -> dict[str, dict]:
 
 
 def fetch(now: datetime) -> list[Notice]:
-    if now.weekday() >= 5:
+    if now.weekday() >= 5 or bank_holidays.is_bank_holiday(now.date()):
         return []
 
     home = os.environ["RTT_ORIGIN"]
@@ -500,7 +504,7 @@ def fetch(now: datetime) -> list[Notice]:
         preview_date = today
     else:
         today_rows = _board_around(access_token, home, other, "arrival", datetime.combine(today, evening))
-        next_day = _next_weekday(today + timedelta(days=1))
+        next_day = _next_commute_day(today + timedelta(days=1))
         preview_rows = _board_around(access_token, home, other, "departure", datetime.combine(next_day, morning))
         preview_date = next_day
 

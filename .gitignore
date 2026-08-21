@@ -7,3 +7,4 @@ __pycache__/
 *.sqlite
 alerts_state.json
 mass_cache.json
+bank_holidays_cache.json

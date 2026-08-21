@@ -4,10 +4,10 @@ from dotenv import load_dotenv
 
 import telegram
 from render import render_digest
-from services import air_quality, bins, mass, powercuts, traffic, trains, weather
+from services import air_quality, bank_holidays, bins, mass, powercuts, traffic, trains, weather
 from services.base import Notice, is_notable
 
-SERVICES = [bins, air_quality, weather, trains, traffic, mass]
+SERVICES = [bins, air_quality, weather, trains, traffic, mass, bank_holidays]
 ALERT_SERVICES = [trains, weather, traffic, powercuts]
 
 

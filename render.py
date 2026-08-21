@@ -11,6 +11,7 @@ _SOURCE_EMOJI = {
     "mass": "✝️",
     "trains": "🚆",
     "traffic": "🚗",
+    "bank_holidays": "🎉",
 }
 
 

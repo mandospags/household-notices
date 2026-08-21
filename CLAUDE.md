@@ -31,7 +31,7 @@ code changes were needed for this repo to become schedulable.
 
 ## Current state
 
-Working Phase 1 digest with seven sources:
+Working Phase 1 digest with eight sources:
 
 - `digest.py` — daily-digest entry point. Loads `.env`, calls each
   service's `fetch(now)`, buckets notices into "today"/"upcoming", also
@@ -91,10 +91,18 @@ Working Phase 1 digest with seven sources:
   Notice sets `emoji` per collection type (`BIN_EMOJI`: ⬛ household, 🟫
   recycling, 🟩 garden, ▪️ food) since all four types share `SOURCE="bins"`,
   so render.py's source-keyed lookup can't tell them apart on its own.
+- `services/bank_holidays.py` — UK bank holidays (`BANK_HOLIDAYS_DIVISION`,
+  keyless gov.uk JSON, cached like mass.py). Digest-only, `fetch()` capped
+  to the next 14 days (the feed itself covers a year+ ahead). Also exposes
+  `is_bank_holiday(date)`, imported directly by trains.py to skip holidays
+  the same way it already skips weekends — fails open (`False`) if the
+  check itself can't be answered, so an unrelated feed hiccup never breaks
+  the trains watch.
 - `services/air_quality.py` — DEFRA DAQI forecast RSS.
 - `services/weather.py` — Met Office severe weather warnings RSS.
 - `services/trains.py` — Realtime Trains commute rows (Andover ⇄ Waterloo),
-  weekdays only. Each digest board is the usual commute train
+  weekdays only, and skips bank holidays too (see bank_holidays.py above).
+  Each digest board is the usual commute train
   (`TRAINS_USUAL_MORNING`/`EVENING`) plus the nearest one either side
   (~3 total, including already-departed ones — useful context if the usual
   one's running late). Split at `TRAINS_MORNING_CUTOFF` (not noon — "the

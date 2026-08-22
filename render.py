@@ -5,7 +5,10 @@ from services.base import Notice
 # source -> emoji, for sources where one icon covers every Notice they
 # produce. bins.py is deliberately not here - its four collection types
 # share SOURCE="bins", so it embeds its own per-type emoji directly in
-# each Notice's title instead (see services/bins.py's BIN_EMOJI).
+# each Notice's title instead (see services/bins.py's BIN_EMOJI). feasts.py
+# is also deliberately not here - digest.py's _merge_feasts() folds its
+# notices into mass.py's line (or drops them) before render.py ever sees
+# them, so a feasts.py notice never reaches this lookup.
 _SOURCE_EMOJI = {
     "air_quality": "🌫️",
     "mass": "✝️",

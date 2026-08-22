@@ -31,11 +31,13 @@ code changes were needed for this repo to become schedulable.
 
 ## Current state
 
-Working Phase 1 digest with nine sources:
+Working Phase 1 digest with ten sources:
 
 - `digest.py` — daily-digest entry point. Loads `.env`, calls each
-  service's `fetch(now)`, buckets notices into "today"/"upcoming", also
-  calls `alert_status(now)` on the alert-capable services for a stateless
+  service's `fetch(now)`, merges feasts.py's notices into mass.py's
+  same-date line (`_merge_feasts()` — see feasts.py's docstring), buckets
+  the remaining notices into "today"/"upcoming", also calls
+  `alert_status(now)` on the alert-capable services for a stateless
   "Alerts" block at the top (non-nominal statuses only — "clear"/"on time"
   filtered out); renders. This is a second, independent read of
   `alert_status()` alongside `fetch()` (some extra API calls) — it does not
@@ -169,6 +171,34 @@ Working Phase 1 digest with nine sources:
   `MASS_CACHE_FILE` (JSON, gitignored) and only re-fetched once the cache
   is over an hour old; a stale cache is served if a re-fetch fails outright,
   so `fetch` only raises with no cache at all to fall back on. Digest-only.
+- `services/feasts.py` — 1962 Roman calendar feast days, alongside
+  mass.py's weekly bulletin. Uses Missale Meum's public API
+  (missalemeum.com), not Divinum Officium directly — Divinum Officium's own
+  precedence engine (what actually resolves a date to a feast) is spread
+  across several Perl modules and per-day office directories backed by a
+  ~330MB data submodule, not a "pull one or two files" job, and Missale
+  Meum's own repo pulls that same submodule in as its own dependency, so
+  vendoring it doesn't shrink the problem either — a plain API call
+  sidesteps both (see git history for the researched-and-rejected
+  vendoring options). Keyless. Filters to `rank <= 2` (the 1962 calendar's
+  traditional class, 1=highest, 4=lowest) — every Sunday is at least rank
+  2, so this one threshold surfaces the Sunday and genuinely major feasts
+  without also naming every daily minor saint (rank 3/4), which was the
+  actual "avoid spam" goal rather than a "days of obligation" flag
+  (obligation is a separate, smaller, bishops'-conference-defined list that
+  doesn't map cleanly onto rank alone). Fetches a `WINDOW_DAYS`-wide window
+  from today (the API 400s if `from` isn't strictly earlier than `until`,
+  so even "just today" needs a forward window). Cached like mass.py
+  (`FEASTS_CACHE_FILE`, ~1hr TTL, stale-served-on-failure). Digest-only.
+  This is the general Roman calendar — mass.py's own Burghclere bulletin
+  may reflect a local/patronal feast this API can't know about; the two
+  sources are independent and can legitimately disagree on a given day.
+  Its notices never render as their own line — `digest.py`'s
+  `_merge_feasts()` appends a feast's title into the matching mass.py
+  Notice's `detail` (shown in brackets) and drops the feast Notice; a feast
+  with no matching mass Notice for that date is dropped silently rather
+  than shown standalone. feasts.py itself stays independent of mass.py —
+  the merge lives in digest.py, not in either service.
 - `services/powercuts.py` — SSEN Distribution power cuts, via the API
   behind their consumer PowerTrack tool (found through the CKAN dataset
   metadata, not the map tool itself; needs a browser User-Agent like

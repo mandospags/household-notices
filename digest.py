@@ -4,10 +4,21 @@ from dotenv import load_dotenv
 
 import telegram
 from render import render_digest
-from services import air_quality, bank_holidays, bins, forecast, mass, powercuts, traffic, trains, weather
+from services import (
+    air_quality,
+    bank_holidays,
+    bins,
+    feasts,
+    forecast,
+    mass,
+    powercuts,
+    traffic,
+    trains,
+    weather,
+)
 from services.base import Notice, is_notable
 
-SERVICES = [bins, air_quality, weather, trains, traffic, mass, bank_holidays, forecast]
+SERVICES = [bins, air_quality, weather, trains, traffic, mass, feasts, bank_holidays, forecast]
 ALERT_SERVICES = [trains, weather, traffic, powercuts]
 
 
@@ -35,6 +46,22 @@ def _section(notice: Notice, today) -> str | None:
     return None
 
 
+def _merge_feasts(notices: list[Notice]) -> list[Notice]:
+    """feasts.py notices never render on their own line - a same-date mass.py
+    notice gets the feast title appended as its `detail` (renders in
+    brackets); a feast with no matching mass notice for that date is dropped
+    silently rather than shown standalone."""
+    feast_titles = {n.date: n.title for n in notices if n.source == feasts.SOURCE}
+    merged = []
+    for notice in notices:
+        if notice.source == feasts.SOURCE:
+            continue
+        if notice.source == mass.SOURCE and notice.date in feast_titles:
+            notice.detail = feast_titles[notice.date]
+        merged.append(notice)
+    return merged
+
+
 def main() -> None:
     load_dotenv()
 
@@ -47,6 +74,8 @@ def main() -> None:
             all_notices.extend(service.fetch(now))
         except Exception as exc:
             print(f"[{service.SOURCE}] failed: {exc}")
+
+    all_notices = _merge_feasts(all_notices)
 
     today_notices = sorted(
         (n for n in all_notices if _section(n, today) == "today"), key=lambda n: n.source

@@ -126,7 +126,6 @@ built. Everything else in this doc is frozen original intent.)
 - Road closures/roadworks — DfT Street Manager open data (real API).
 - Test Valley planning applications — HTML scrape, no known API.
 - St Michael's School, Burghclere — upcoming events.
-- 1962 Ordo / today's liturgical calendar day.
 - Environment Agency flood warnings — `environment.data.gov.uk/flood-monitoring`
   REST API, no key/registration needed. No postcode filter — query by
   `county=` or `lat/long/dist` (postcode needs a geocode step first, or a

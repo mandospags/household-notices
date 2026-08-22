@@ -3,6 +3,10 @@ bot (token + chat_id already provisioned in homelab-mcp; this repo only
 ever calls sendMessage, never getUpdates, which is what makes holding the
 same token safe - no listener, no command handling, no shared risk).
 
+digest.py and alerts.py both send through here, and digest.py sends
+unconditionally on every run - there's no on/off toggle, deliberately; add
+one if that ever becomes a problem.
+
 Plain text only (no parse_mode) - avoids the HTML-escaping trap where an
 unescaped <, >, or & silently gets the whole message rejected by Telegram.
 

@@ -50,22 +50,16 @@ from zoneinfo import ZoneInfo
 
 import requests
 
-from .base import Notice
+from .base import BROWSER_UA, TIMEOUT, Notice
 
 SOURCE = "powercuts"
 
 FAULTS_URL = "https://external.distribution.prd.ssen.co.uk/opendataportal-prd/v4/api/getallfaults"
-HEADERS = {
-    "Accept": "application/json",
-    "User-Agent": (
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
-        "(KHTML, like Gecko) Chrome/124.0 Safari/537.36"
-    ),
-}
+HEADERS = {"Accept": "application/json", "User-Agent": BROWSER_UA}
 
 
 def _fetch_faults() -> list[dict]:
-    resp = requests.get(FAULTS_URL, headers=HEADERS, timeout=15)
+    resp = requests.get(FAULTS_URL, headers=HEADERS, timeout=TIMEOUT)
     resp.raise_for_status()
     return resp.json()["faults"]
 

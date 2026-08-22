@@ -31,189 +31,29 @@ code changes were needed for this repo to become schedulable.
 
 ## Current state
 
-Working Phase 1 digest with ten sources:
+Working Phase 1 digest with ten sources. **Each module's docstring is the
+detail** — feed quirks, auth model, why a thing is the way it is. This
+section is the index, not a second copy of them; read the docstring before
+changing a module.
 
-- `digest.py` — daily-digest entry point. Loads `.env`, calls each
-  service's `fetch(now)`, merges feasts.py's notices into mass.py's
-  same-date line (`_merge_feasts()` — see feasts.py's docstring), buckets
-  the remaining notices into "today"/"upcoming", also calls
-  `alert_status(now)` on the alert-capable services for a stateless
-  "Alerts" block at the top (non-nominal statuses only — "clear"/"on time"
-  filtered out); renders. This is a second, independent read of
-  `alert_status()` alongside `fetch()` (some extra API calls) — it does not
-  share state with or affect `alerts.py`'s diff cadence.
-- `alerts.py` — poll-and-diff entry point for sudden items: one line per
-  change vs last-seen state (`ALERTS_STATE_FILE`, JSON, gitignored),
-  silence otherwise, on both stdout and Telegram (sends the batch via
-  `telegram.py` only when there's something to say). A newly-seen key that's
-  already nominal (`is_notable()` false) records silently instead of
-  printing `[new]` — a fresh key starting out fine isn't news. Relies on
-  alert-capable services keeping `status` categorical (see trains.py/
-  traffic.py) so a train or route stuck delayed/late alerts once at the
-  transition, not on every live-estimate wobble. Time-blind by design —
-  cadence belongs to the invoker (manual now, cron in Phase 2). Kept as a
-  sibling of `digest.py` sharing `services/`; don't merge the two cadences
-  into one pipeline. A service can set a module-level `ACTIVE_HOURS =
-  (start_hour, end_hour)` (end exclusive) to only be polled/alerted inside
-  that window — `trains`/`weather`/`traffic` are `(6, 20)` (daytime-only,
-  no point paging about a train at 3am); `powercuts` has none (always-on).
-  A service outside its window has its previous state carried forward
-  unchanged (same mechanism as a failed fetch) rather than dropped, so an
-  overnight run doesn't erase yesterday's daytime status and cause a bogus
-  `[new]` when it wakes up.
-- `render.py` — builds the plain-text digest as a string (`digest.py`
-  prints it and also sends it via `telegram.py`). No bullet characters (`-`)
-  in front of lines — they didn't render as bullets in Telegram anyway,
-  just added noise. Every Today/Upcoming line leads with an emoji: a
-  `source -> emoji` table (`_SOURCE_EMOJI`) covers sources with one icon;
-  `traffic` is the one source with two (travel-time vs incident lines,
-  split on `" incident:"` in the title, since both share `SOURCE="traffic"`)
-  handled as a special case rather than a second table entry; `bins` sets
-  `Notice.emoji` directly per-collection-type instead of going through
-  either table, since all four bin types share `SOURCE="bins"` and only
-  bins.py itself knows which type a given Notice is. An empty Alerts
-  section is omitted entirely (no heading, no "No active alerts." filler)
-  rather than printed every run.
-- `telegram.py` — send-only delivery to the shared "Home" Telegram bot
-  (`TELEGRAM_BOT_TOKEN`/`TELEGRAM_CHAT_ID`, same token as sibling repo
-  `homelab-mcp`, provisioned there — this repo only ever calls
-  `sendMessage`, never `getUpdates`, which is what makes sharing the token
-  safe). Plain text only, no `parse_mode` — avoids the HTML-escaping trap.
-  No 4096-char handling yet; an oversized digest surfaces as a loud
-  Telegram 400 rather than silently truncating. `digest.py` sends
-  unconditionally on every run (no on/off toggle yet — deliberately kept
-  simple, add one if that becomes a problem).
-- `services/base.py` — the `Notice` dataclass (the whole inter-module
-  contract) and `is_notable(status)`, the nominal/notable line shared by
-  digest.py's Alerts block and alerts.py's new-key suppression. `Notice.emoji`
-  is an optional per-notice override for render.py's display icon, used only
-  by bins.py (see below) — everything else leaves it unset and gets its icon
-  from render.py's source-keyed lookup instead.
-- `services/bins.py` — Test Valley bin collections (iTouchVision API). Each
-  Notice sets `emoji` per collection type (`BIN_EMOJI`: ⬛ household, 🟫
-  recycling, 🟩 garden, ▪️ food) since all four types share `SOURCE="bins"`,
-  so render.py's source-keyed lookup can't tell them apart on its own.
-- `services/bank_holidays.py` — UK bank holidays (`BANK_HOLIDAYS_DIVISION`,
-  keyless gov.uk JSON, cached like mass.py). Digest-only, `fetch()` capped
-  to the next 14 days (the feed itself covers a year+ ahead). Also exposes
-  `is_bank_holiday(date)`, imported directly by trains.py to skip holidays
-  the same way it already skips weekends — fails open (`False`) if the
-  check itself can't be answered, so an unrelated feed hiccup never breaks
-  the trains watch.
-- `services/forecast.py` — daily temp range + rain chance ("what to wear/
-  bring"), Met Office Site-Specific Blended Probabilistic Forecast (BPF), a
-  separate subscription from `weather.py`'s severe-warnings feed. Two
-  digest lines: today (absolute "cold"/"warm"/"wet"/"dry" thresholds) and
-  tomorrow (compared against today — "warmer and drier than today"). The
-  API has no plain max/min/rain% fields — temperature comes back as 15
-  percentile bands (uses the 50th/median) and rain as a probability per
-  rainfall threshold (uses the ~0.25mm band, closest to the usual
-  "measurable rain" cutoff — the `>0.0` "any trace" band badly over-reads).
-  Both are 3-hourly series bucketed into calendar days client-side (by
-  Europe/London date, not raw UTC). Cached like mass.py (~1hr TTL) to stay
-  well under the free tier's 55 calls/day. Digest-only — a forecast drifts
-  rather than flipping between discrete states, so there's nothing clean
-  to diff for `alert_status()`. Reuses `TRAFFIC_HOME`'s geocoded point
-  rather than a new coordinate var.
-- `services/air_quality.py` — DEFRA DAQI forecast RSS.
-- `services/weather.py` — Met Office severe weather warnings, via the NSWWS
-  Public API (separate DataHub subscription/key from forecast.py's BPF
-  product). Replaced an earlier per-region RSS version — this filters by
-  county (`WEATHER_HOME_COUNTY`, exact match against a warning's
-  `affectedAreas[].subRegions`) rather than the old blunt 16-region split,
-  and uses the feed's own `warningLevel` (YELLOW/AMBER/RED) as
-  `alert_status()`'s categorical status instead of diffing raw text. Two
-  fetches per call, always, no shortcut: `/objects/feed` (Atom) to discover
-  the current issued-warnings snapshot's URL (its UUID rotates every time
-  the warning list changes), then that URL for the GeoJSON snapshot itself.
-  Drops anything not `warningStatus == "ISSUED"` or already past
-  `validToDate`; `fetch()` clamps a warning's `validFromDate` to today if
-  it's already started, so a still-active multi-day warning doesn't age out
-  of the digest the way the old RSS version's `pubDate`-based dating could.
-  No live UK warning has ever been active since either version was built —
-  parsing was verified against a real multi-warning sample the Met Office
-  provided directly (Storm Éowyn, Jan 2025), not a live response.
-- `services/trains.py` — Realtime Trains commute rows (Andover ⇄ Waterloo),
-  weekdays only, and skips bank holidays too (see bank_holidays.py above).
-  Each digest board is the usual commute train
-  (`TRAINS_USUAL_MORNING`/`EVENING`) plus the nearest one either side
-  (~3 total, including already-departed ones — useful context if the usual
-  one's running late). Split at `TRAINS_MORNING_CUTOFF` (not noon — "the
-  latest I'd still count as arriving today"): before it, today = morning
-  board, upcoming = today's evening board; from it on, today = evening
-  board, upcoming = tomorrow morning's board (skips to Monday over a
-  weekend). Also alert-capable (watches the two usual commute trains for
-  delay/cancellation/platform changes) — that watch needs the *exact*
-  scheduled time, unlike the boards' nearest-match tolerance; its status is
-  categorical (`on time`/`late`/`CANCELLED` + platform, no minutes) so
-  alerts.py fires once per transition, not on every live-estimate wobble.
-  The watch also layers in National Rail's own Live Departure Boards
-  (LDBWS, `LDBWS_API_KEY` from raildata.org.uk) once a watched departure is
-  within LDBWS's confirmed-live ~120min lookahead — worse-status-wins
-  against RTT's category (never a downgrade), added after RTT's app lagged
-  a station board showing a real cancellation on 2026-08-20. LDBWS can't
-  replace RTT for the boards themselves (no schedule-query support, only
-  "what's coming up now").
-- `services/traffic.py` — TomTom live traffic for the Station run and
-  School run (direction flips at noon: Home→Station/School before, back
-  Home after; the printed line shows the actual direction, e.g.
-  "Home → Station", though `alert_status` keys stay direction-free so the
-  noon flip doesn't double-fire); also reports roadworks/closures actually
-  on the calculated route (via calculateRoute's own `sections`, not a
-  bounding-box guess — see module docstring for why that distinction
-  matters).
-- `services/mass.py` — weekly Mass times for Burghclere (FSSPX district
-  bulletin page), scraped (no API/RSS); table is date-specific per week,
-  not a generic recurring schedule, so feast-day exceptions are already
-  reflected. Needs a browser-like User-Agent (bare requests UA gets a 403).
-  The page also throws frequent Cloudflare 520s (network/IP-dependent, not
-  a UA thing — confirmed with curl too), so results are cached to
-  `MASS_CACHE_FILE` (JSON, gitignored) and only re-fetched once the cache
-  is over an hour old; a stale cache is served if a re-fetch fails outright,
-  so `fetch` only raises with no cache at all to fall back on. Digest-only.
-- `services/feasts.py` — 1962 Roman calendar feast days, alongside
-  mass.py's weekly bulletin. Uses Missale Meum's public API
-  (missalemeum.com), not Divinum Officium directly — Divinum Officium's own
-  precedence engine (what actually resolves a date to a feast) is spread
-  across several Perl modules and per-day office directories backed by a
-  ~330MB data submodule, not a "pull one or two files" job, and Missale
-  Meum's own repo pulls that same submodule in as its own dependency, so
-  vendoring it doesn't shrink the problem either — a plain API call
-  sidesteps both (see git history for the researched-and-rejected
-  vendoring options). Keyless. Filters to `rank <= 2` (the 1962 calendar's
-  traditional class, 1=highest, 4=lowest) — every Sunday is at least rank
-  2, so this one threshold surfaces the Sunday and genuinely major feasts
-  without also naming every daily minor saint (rank 3/4), which was the
-  actual "avoid spam" goal rather than a "days of obligation" flag
-  (obligation is a separate, smaller, bishops'-conference-defined list that
-  doesn't map cleanly onto rank alone). Fetches a `WINDOW_DAYS`-wide window
-  from today (the API 400s if `from` isn't strictly earlier than `until`,
-  so even "just today" needs a forward window). Cached like mass.py
-  (`FEASTS_CACHE_FILE`, ~1hr TTL, stale-served-on-failure). Digest-only.
-  This is the general Roman calendar — mass.py's own Burghclere bulletin
-  may reflect a local/patronal feast this API can't know about; the two
-  sources are independent and can legitimately disagree on a given day.
-  Its notices never render as their own line — `digest.py`'s
-  `_merge_feasts()` appends a feast's title into the matching mass.py
-  Notice's `detail` (shown in brackets) and drops the feast Notice; a feast
-  with no matching mass Notice for that date is dropped silently rather
-  than shown standalone. feasts.py itself stays independent of mass.py —
-  the merge lives in digest.py, not in either service.
-- `services/powercuts.py` — SSEN Distribution power cuts, via the API
-  behind their consumer PowerTrack tool (found through the CKAN dataset
-  metadata, not the map tool itself; needs a browser User-Agent like
-  mass.py, same 403-without-one gotcha). No server-side postcode filter —
-  fetches the full GB-wide fault list every call and filters client-side on
-  exact match against `HOME_POSTCODE` (full postcode or bare outward code,
-  not a prefix match). One feed covers planned and unplanned outages,
-  distinguished by `type`/`jobStatus`. Alert-only (no `fetch()`/digest
-  notices yet — a deliberate deviation from the usual pattern, see the
-  module docstring) and always-on (no `ACTIVE_HOURS`). SSEN's feed drops a
-  restored fault within about a minute — faster than any sane poll cadence
-  — so alerts.py's existing "disappearance is silent" rule means a power
-  cut alerts once at onset with no explicit "restored" line; accepted as
-  consistent with trains.py's daily key rollover rather than adding state
-  to change it.
+| File | What it is |
+| --- | --- |
+| `digest.py` | Daily-digest entry point: fetch all sources, bucket today/upcoming, render, print, Telegram. Also owns `_merge_feasts()`. |
+| `alerts.py` | Poll-and-diff entry point for sudden items. Time-blind by design; a sibling of `digest.py`, not to be merged with it. |
+| `render.py` | Plain-text digest layout and the per-line emoji rules. |
+| `telegram.py` | Send-only delivery to the shared "Home" bot (`sendMessage` only, never `getUpdates`). |
+| `services/base.py` | The `Notice` dataclass, `is_notable()`, and the shared `BROWSER_UA`/`TIMEOUT` constants. |
+| `services/cache.py` | The shared JSON-file cache (TTL, stale-serve-on-failure) used by mass/forecast/feasts/bank_holidays. |
+| `services/bins.py` | Test Valley bin collections (iTouchVision). Sets `Notice.emoji` per collection type. |
+| `services/air_quality.py` | DEFRA DAQI forecast RSS. |
+| `services/weather.py` | Met Office severe warnings (NSWWS Public API), filtered by `WEATHER_HOME_COUNTY`. Alert-capable. |
+| `services/forecast.py` | Met Office BPF daily temp range + rain chance — today, and tomorrow-vs-today. Separate key from `weather.py`. |
+| `services/trains.py` | Realtime Trains commute boards, weekdays only, skipping bank holidays; LDBWS layered onto the watch. Alert-capable. |
+| `services/traffic.py` | TomTom live traffic for the Station and School runs, plus on-route incidents. Alert-capable. |
+| `services/mass.py` | Weekly Mass times for Burghclere, scraped from the FSSPX bulletin page. Flaky upstream (Cloudflare 520s) — leans on the cache. |
+| `services/feasts.py` | 1962 Roman calendar feast days (Missale Meum API), `rank <= 2`. Never renders its own line — merged into mass.py's. |
+| `services/bank_holidays.py` | UK bank holidays (gov.uk JSON). Also exposes `is_bank_holiday()`, used by trains.py. |
+| `services/powercuts.py` | SSEN power cuts, filtered on `HOME_POSTCODE`. Alert-only (no `fetch()`) and always-on. |
 
 `weather`, `trains`, `traffic`, and `powercuts` are alert-capable
 (`alert_status(now)`); the others are digest-only.
@@ -247,6 +87,10 @@ One consistent pattern, no registry or base class:
    (and `.env`). Never hardcode postcode/UPRN/tokens/region codes.
 4. Raise on failure — the digest catches per-service exceptions and keeps
    going, so no defensive try/except inside services.
+5. If the source needs caching (slow, flaky, or rate-limited), wrap the live
+   fetch in `services/cache.py`'s `cached()` rather than writing another
+   TTL/stale-serve loop. It stores plain JSON, so convert to/from `Notice`
+   in the service itself.
 
 By default a `Notice` is bucketed by `date` (today vs upcoming, anything
 past dropped); set `section=` explicitly only when that's wrong (trains does
@@ -277,10 +121,13 @@ everything if we move" story though: several other configs (`TVBC_UPRN`,
 SCHOOL`) are derived from location but require a manual re-derivation step
 on a move — see the checklist at the bottom of `.env.example`.
 
-**Write a real module docstring**: capture what an agent can't rediscover
-cheaply — feed quirks, auth model, timezone behavior, things unconfirmed
-because they haven't been observed live yet. See `services/bins.py` and
-`services/trains.py` for the standard.
+**Write a real module docstring.** This matters more than it looks: the
+docstrings are the only detailed record, and the "Current state" table above
+is deliberately just an index pointing at them. Capture what an agent can't
+rediscover cheaply — feed quirks, auth model, timezone behavior, things
+unconfirmed because they haven't been observed live yet. See
+`services/bins.py` and `services/trains.py` for the standard. Don't restate
+a docstring in this file; add a table row and leave it at that.
 
 ## Backlog
 
@@ -296,9 +143,9 @@ built. Completed work is just git history — no changelog file.
   go-ahead before writing code — don't jump straight from "here's a
   problem" to an implementation. Trivial fixes (typos, obvious one-liners)
   don't need this.
-- Keep this file's "Current state" section and SPEC.md's "Backlog" true —
-  update them in the same change when facts drift. Don't rewrite the rest
-  of `SPEC.md`.
+- Keep this file's "Current state" table and SPEC.md's "Backlog" true —
+  update them in the same change when facts drift. Detail belongs in the
+  module docstring, not here. Don't rewrite the rest of `SPEC.md`.
 - Keep secrets out of git: real values in `.env` (ignored), documented
   placeholders in `.env.example`.
 - Small focused commits when asked to commit.

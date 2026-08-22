@@ -107,7 +107,7 @@ from datetime import date, datetime, time, timedelta
 import requests
 
 from . import bank_holidays
-from .base import Notice
+from .base import BROWSER_UA, TIMEOUT, Notice
 
 API_BASE = "https://data.rtt.io"
 LDBWS_BASE = "https://api1.raildata.org.uk/1010-live-departure-board-dep1_2/LDBWS/api/20220120"
@@ -147,7 +147,7 @@ def _get_access_token() -> str:
     resp = requests.get(
         f"{API_BASE}/api/get_access_token",
         headers={"Authorization": f"Bearer {refresh_token}"},
-        timeout=15,
+        timeout=TIMEOUT,
     )
     resp.raise_for_status()
     return resp.json()["token"]
@@ -171,7 +171,7 @@ def _location_lineup(
             "timeFrom": f"{time_from:%Y-%m-%dT%H:%M:%S}",
             "timeTo": f"{time_to:%Y-%m-%dT%H:%M:%S}",
         },
-        timeout=15,
+        timeout=TIMEOUT,
     )
     resp.raise_for_status()
     if resp.status_code == 204:
@@ -341,13 +341,10 @@ def _ldbws_entry(depart: str, dest: str, planned: datetime) -> dict | None:
             "x-apikey": os.environ["LDBWS_API_KEY"],
             # Bare/default requests UA gets a 403 (Cloudflare bot-block) -
             # same gotcha as mass.py/powercuts.py, same fix.
-            "User-Agent": (
-                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
-                "(KHTML, like Gecko) Chrome/124.0 Safari/537.36"
-            ),
+            "User-Agent": BROWSER_UA,
         },
         params={"filterCrs": dest, "filterType": "to"},
-        timeout=15,
+        timeout=TIMEOUT,
     )
     resp.raise_for_status()
     for svc in resp.json().get("trainServices") or []:

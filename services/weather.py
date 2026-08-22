@@ -64,7 +64,7 @@ from zoneinfo import ZoneInfo
 
 import requests
 
-from .base import Notice
+from .base import TIMEOUT, Notice
 
 SOURCE = "weather"
 ACTIVE_HOURS = (6, 20)  # daytime only - see alerts.py's ACTIVE_HOURS gate
@@ -80,7 +80,7 @@ def _headers() -> dict:
 
 
 def _current_warnings() -> list[dict]:
-    feed_resp = requests.get(FEED_URL, headers=_headers(), timeout=15)
+    feed_resp = requests.get(FEED_URL, headers=_headers(), timeout=TIMEOUT)
     feed_resp.raise_for_status()
     root = ElementTree.fromstring(feed_resp.content)
 
@@ -88,7 +88,7 @@ def _current_warnings() -> list[dict]:
     if related is None:
         raise ValueError("NSWWS feed has no rel='related' link to the issued-warnings snapshot")
 
-    issued_resp = requests.get(related.get("href"), headers=_headers(), timeout=15)
+    issued_resp = requests.get(related.get("href"), headers=_headers(), timeout=TIMEOUT)
     issued_resp.raise_for_status()
     return issued_resp.json()["features"]
 

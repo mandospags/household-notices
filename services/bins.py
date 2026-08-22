@@ -16,7 +16,7 @@ import requests
 from Crypto.Cipher import AES
 from Crypto.Util.Padding import pad, unpad
 
-from .base import Notice
+from .base import TIMEOUT, Notice
 
 SOURCE = "bins"
 
@@ -62,7 +62,7 @@ def _call(path: str, payload: dict) -> dict:
         "P_PARAMETER": _encrypt(payload),
         "User-Agent": "Mozilla/5.0",
     }
-    resp = requests.get(f"{API_URL}{path}", headers=headers, timeout=15)
+    resp = requests.get(f"{API_URL}{path}", headers=headers, timeout=TIMEOUT)
     resp.raise_for_status()
     return _decrypt(resp.text)
 

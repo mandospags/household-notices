@@ -1,6 +1,17 @@
 from dataclasses import dataclass
 from datetime import date as Date
 
+# Several sources (mass, powercuts, trains' LDBWS call) sit behind Cloudflare
+# and 403 a bare/default requests User-Agent - one shared browser UA rather
+# than the same string pasted into each. bins.py deliberately keeps its own
+# shorter "Mozilla/5.0" - it works there and isn't worth re-testing.
+BROWSER_UA = (
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+    "(KHTML, like Gecko) Chrome/124.0 Safari/537.36"
+)
+# Every outbound call uses this - no source has ever needed a different one.
+TIMEOUT = 15
+
 
 def is_notable(status: str) -> bool:
     """Whether an alert_status() status is worth surfacing - "clear" and

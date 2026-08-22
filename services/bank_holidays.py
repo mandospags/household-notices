@@ -4,10 +4,10 @@ northern-ireland - `BANK_HOLIDAYS_DIVISION` picks which).
 
 Digest-only, no alert_status - a bank holiday is never sudden.
 
-Cached like mass.py (BANK_HOLIDAYS_CACHE_FILE, ~1 day TTL, stale-served-on-
-failure): trains.py checks is_bank_holiday() on every alerts.py poll (every
-10 min, daytime), and this feed only changes a couple of times a year, so a
-live fetch each time would just be needless load on gov.uk.
+Cached via cache.py (BANK_HOLIDAYS_CACHE_FILE, ~1 day TTL): trains.py checks
+is_bank_holiday() on every alerts.py poll (every 10 min, daytime), and this
+feed only changes a couple of times a year, so a live fetch each time would
+just be needless load on gov.uk.
 
 fetch() only emits holidays within BANK_HOLIDAYS_HORIZON_DAYS - the feed
 carries a year-plus of future dates and digest.py's "upcoming" bucket is
@@ -21,61 +21,42 @@ over an unrelated feed being briefly down. fetch() itself still raises on
 failure, per the usual contract.
 """
 
-import json
 import os
 from datetime import date as Date
 from datetime import datetime, timedelta
-from pathlib import Path
 
 import requests
 
-from .base import Notice
+from .base import TIMEOUT, Notice
+from .cache import cached
 
 SOURCE = "bank_holidays"
 
 FEED_URL = "https://www.gov.uk/bank-holidays.json"
 HORIZON_DAYS = 14
-CACHE_MAX_AGE = timedelta(days=1)
+CACHE_TTL = timedelta(days=1)
 
 
 def _fetch_events() -> list[dict]:
-    resp = requests.get(FEED_URL, timeout=15)
+    resp = requests.get(FEED_URL, timeout=TIMEOUT)
     resp.raise_for_status()
     division = os.environ["BANK_HOLIDAYS_DIVISION"]
     return resp.json()[division]["events"]
 
 
-def _cache_path() -> Path:
-    return Path(os.environ["BANK_HOLIDAYS_CACHE_FILE"])
-
-
-def _cached_events() -> list[dict] | None:
-    path = _cache_path()
-    if not path.exists():
-        return None
-    cached = json.loads(path.read_text())
-    fetched_at = datetime.fromisoformat(cached["fetched_at"])
-    if datetime.now() - fetched_at > CACHE_MAX_AGE:
-        return None
-    return cached["events"]
-
-
 def _events(now: datetime) -> list[dict]:
-    cached = _cached_events()
-    if cached is not None:
-        return cached
-    try:
-        events = _fetch_events()
-    except Exception:
-        stale = _cache_path()
-        if stale.exists():
-            return json.loads(stale.read_text())["events"]
-        raise
-    _cache_path().write_text(json.dumps({"fetched_at": now.isoformat(), "events": events}))
-    return events
+    return cached(
+        "BANK_HOLIDAYS_CACHE_FILE",
+        "bank_holidays_cache.json",
+        CACHE_TTL,
+        now,
+        _fetch_events,
+    )
 
 
 def is_bank_holiday(d: Date) -> bool:
+    # trains.py calls this without a `now` to thread through; the wall clock
+    # is only used for the cache's freshness check, never for date logic.
     try:
         events = _events(datetime.now())
     except Exception:

@@ -53,7 +53,7 @@ from datetime import datetime
 
 import requests
 
-from .base import Notice
+from .base import TIMEOUT, Notice
 
 SOURCE = "traffic"
 ACTIVE_HOURS = (6, 20)  # daytime only - see alerts.py's ACTIVE_HOURS gate
@@ -72,7 +72,7 @@ def _calculate_route(api_key: str, start: str, end: str) -> dict:
     resp = requests.get(
         ROUTE_URL_TEMPLATE.format(start=start, end=end),
         params={"key": api_key, "traffic": "true", "sectionType": "traffic"},
-        timeout=15,
+        timeout=TIMEOUT,
     )
     resp.raise_for_status()
     return resp.json()["routes"][0]
@@ -118,7 +118,7 @@ def _incidents(api_key: str, points: list[dict], on_route_event_ids: set[str]) -
             "fields": INCIDENT_FIELDS,
             "language": "en-GB",
         },
-        timeout=15,
+        timeout=TIMEOUT,
     )
     resp.raise_for_status()
 

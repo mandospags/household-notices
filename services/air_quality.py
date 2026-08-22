@@ -22,7 +22,7 @@ from xml.etree import ElementTree
 
 import requests
 
-from .base import Notice
+from .base import TIMEOUT, Notice
 
 SOURCE = "air_quality"
 
@@ -48,7 +48,7 @@ def _band(index: int) -> str:
 def fetch(now: datetime) -> list[Notice]:
     station = os.environ["DAQI_STATION"]
 
-    resp = requests.get(FEED_URL, timeout=15)
+    resp = requests.get(FEED_URL, timeout=TIMEOUT)
     resp.raise_for_status()
     root = ElementTree.fromstring(resp.text)
 

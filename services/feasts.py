@@ -39,9 +39,9 @@ feasts.py fetches). This module still returns plain, independent Notices
 from fetch() and knows nothing about mass.py itself - the merge lives in
 digest.py precisely so this module doesn't have to.
 
-Cached like mass.py (FEASTS_CACHE_FILE, ~1hr TTL, stale-served-on-fetch-
-failure, raises only with no cache at all) - mostly to be a good citizen of
-a small personal API rather than because of any observed rate limit.
+Cached via cache.py (FEASTS_CACHE_FILE, ~1hr TTL) - mostly to be a good
+citizen of a small personal API rather than because of any observed rate
+limit.
 
 Caveat, not solvable in code: this is the general Roman calendar. FSSPX's
 own Burghclere bulletin (mass.py) may reflect a local/patronal feast this
@@ -49,13 +49,12 @@ API has no way to know about - the two sources are fetched independently
 and can legitimately disagree on a given day.
 """
 
-import json
-import os
 from datetime import date, datetime, timedelta
 
 import requests
 
-from .base import Notice
+from .base import TIMEOUT, Notice
+from .cache import cached
 
 SOURCE = "feasts"
 
@@ -65,31 +64,13 @@ MAX_RANK = 2  # Sundays and major feasts; 3/4 is daily-saint noise
 CACHE_TTL = timedelta(hours=1)
 
 
-def _cache_path() -> str:
-    return os.environ.get("FEASTS_CACHE_FILE", "feasts_cache.json")
-
-
-def _read_cache(path: str) -> tuple[datetime, list[dict]] | None:
-    try:
-        with open(path) as f:
-            raw = json.load(f)
-        return datetime.fromisoformat(raw["fetched_at"]), raw["days"]
-    except (FileNotFoundError, json.JSONDecodeError, KeyError, ValueError):
-        return None
-
-
-def _write_cache(path: str, now: datetime, days: list[dict]) -> None:
-    with open(path, "w") as f:
-        json.dump({"fetched_at": now.isoformat(), "days": days}, f)
-
-
 def _fetch_live(now: datetime) -> list[dict]:
     today = now.date()
     until = today + timedelta(days=WINDOW_DAYS)
     resp = requests.get(
         API_URL,
         params={"from": today.isoformat(), "until": until.isoformat()},
-        timeout=15,
+        timeout=TIMEOUT,
     )
     resp.raise_for_status()
     return [
@@ -98,29 +79,13 @@ def _fetch_live(now: datetime) -> list[dict]:
     ]
 
 
-def _days(now: datetime) -> list[dict]:
-    cache_path = _cache_path()
-    cached = _read_cache(cache_path)
-    if cached is not None:
-        fetched_at, days = cached
-        if now - fetched_at < CACHE_TTL:
-            return days
-
-    try:
-        days = _fetch_live(now)
-    except requests.exceptions.RequestException:
-        if cached is not None:
-            return cached[1]
-        raise
-
-    _write_cache(cache_path, now, days)
-    return days
-
-
 def fetch(now: datetime) -> list[Notice]:
     today = now.date()
+    days = cached(
+        "FEASTS_CACHE_FILE", "feasts_cache.json", CACHE_TTL, now, lambda: _fetch_live(now)
+    )
     return [
         Notice(source=SOURCE, title=day["title"], date=date.fromisoformat(day["date"]))
-        for day in _days(now)
+        for day in days
         if day["rank"] <= MAX_RANK and date.fromisoformat(day["date"]) >= today
     ]

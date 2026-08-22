@@ -1,3 +1,16 @@
+"""Builds the plain-text digest as a string; digest.py prints it and sends
+the same string to Telegram.
+
+No bullet characters (a leading "- ") on notice lines - they don't render as
+bullets in Telegram, they just add noise. Every Today/Upcoming line leads
+with an emoji instead; see _SOURCE_EMOJI and _emoji() below for how a line
+gets its icon, including the two sources that don't fit the plain
+source -> emoji lookup.
+
+An empty Alerts section is omitted entirely rather than printed as a "no
+active alerts" reassurance line every run.
+"""
+
 from datetime import datetime
 
 from services.base import Notice

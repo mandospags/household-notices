@@ -59,20 +59,20 @@ describes the *system*, not the wire format):
 - Reuses TRAFFIC_HOME's lat,lon (traffic.py's geocoded home point) rather
   than a new coordinate pair - see .env.example.
 
-Cached like mass.py (JSON, gitignored, TTL below) since the free tier is
+Cached via cache.py (FORECAST_CACHE_FILE, TTL below) since the free tier is
 55 calls/day - three API calls (max temp, min temp, rain) per digest run is
 nowhere near that even uncached, but caching also protects against burning
 quota during manual testing/dev.
 """
 
-import json
 import os
 from datetime import date, datetime, timedelta
 from zoneinfo import ZoneInfo
 
 import requests
 
-from .base import Notice
+from .base import TIMEOUT, Notice
+from .cache import cached
 
 SOURCE = "forecast"
 
@@ -154,29 +154,6 @@ def _fetch_live() -> dict[date, dict]:
     return days
 
 
-def _cache_path() -> str:
-    return os.environ.get("FORECAST_CACHE_FILE", "forecast_cache.json")
-
-
-def _read_cache(path: str) -> tuple[datetime, dict[date, dict]] | None:
-    try:
-        with open(path) as f:
-            raw = json.load(f)
-        days = {date.fromisoformat(k): v for k, v in raw["days"].items()}
-        return datetime.fromisoformat(raw["fetched_at"]), days
-    except (FileNotFoundError, json.JSONDecodeError, KeyError, ValueError):
-        return None
-
-
-def _write_cache(path: str, now: datetime, days: dict[date, dict]) -> None:
-    raw = {
-        "fetched_at": now.isoformat(),
-        "days": {d.isoformat(): v for d, v in days.items()},
-    }
-    with open(path, "w") as f:
-        json.dump(raw, f)
-
-
 def _temp_word(max_c: int) -> str | None:
     if max_c < COLD_MAX_C:
         return "cold"
@@ -219,20 +196,15 @@ def _tomorrow_title(tomorrow: dict, today: dict) -> str:
 
 
 def fetch(now: datetime) -> list[Notice]:
-    cache_path = _cache_path()
-    cached = _read_cache(cache_path)
-    if cached is not None and now - cached[0] < CACHE_TTL:
-        days = cached[1]
-    else:
-        try:
-            days = _fetch_live()
-        except requests.exceptions.RequestException:
-            if cached is not None:
-                days = cached[1]
-            else:
-                raise
-        else:
-            _write_cache(cache_path, now, days)
+    # cache.py stores plain JSON, so the date keys go in/out as ISO strings.
+    raw = cached(
+        "FORECAST_CACHE_FILE",
+        "forecast_cache.json",
+        CACHE_TTL,
+        now,
+        lambda: {d.isoformat(): v for d, v in _fetch_live().items()},
+    )
+    days = {date.fromisoformat(k): v for k, v in raw.items()}
 
     today = now.date()
     tomorrow = today + timedelta(days=1)

@@ -1,3 +1,18 @@
+"""Daily-digest entry point: fetch every source, bucket what comes back into
+today/upcoming, render, print, and send to Telegram.
+
+The "Alerts" block at the top is a second, independent read of the
+alert-capable services' alert_status() alongside their fetch() - it costs
+some extra API calls, is stateless (non-nominal statuses only, "clear"/"on
+time" filtered out), and neither shares state with nor affects alerts.py's
+diff cadence. The two entry points are deliberately separate; don't merge
+them into one pipeline.
+
+_merge_feasts() is the one piece of cross-source work here: feasts.py's
+notices are folded into mass.py's same-date line rather than rendered
+standalone, so neither service has to know about the other.
+"""
+
 from datetime import datetime
 
 from dotenv import load_dotenv
@@ -18,7 +33,17 @@ from services import (
 )
 from services.base import Notice, is_notable
 
-SERVICES = [bins, air_quality, weather, trains, traffic, mass, feasts, bank_holidays, forecast]
+SERVICES = [
+    bins,
+    air_quality,
+    weather,
+    trains,
+    traffic,
+    mass,
+    feasts,
+    bank_holidays,
+    forecast,
+]
 ALERT_SERVICES = [trains, weather, traffic, powercuts]
 
 
@@ -50,7 +75,8 @@ def _merge_feasts(notices: list[Notice]) -> list[Notice]:
     """feasts.py notices never render on their own line - a same-date mass.py
     notice gets the feast title appended as its `detail` (renders in
     brackets); a feast with no matching mass notice for that date is dropped
-    silently rather than shown standalone."""
+    silently rather than shown standalone. Sets `detail` outright rather than
+    appending - no mass notice sets one of its own today."""
     feast_titles = {n.date: n.title for n in notices if n.source == feasts.SOURCE}
     merged = []
     for notice in notices:
